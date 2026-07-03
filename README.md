@@ -31,6 +31,7 @@ multi-tenant API.
 | Doc | What it covers |
 |---|---|
 | [`docs/BACKEND_ARCHITECTURE.md`](docs/BACKEND_ARCHITECTURE.md) | Application HLD/LLD: multi-tenancy model, data model, API surface, auth design |
+| [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) | API contract: every endpoint with sample request/response payloads and error codes |
 | [`docs/AZURE_ARCHITECTURE.md`](docs/AZURE_ARCHITECTURE.md) | Infrastructure design: dev-phase minimal stack vs. hardened production target, cost breakdowns |
 | [`docs/AZURE_SETUP.md`](docs/AZURE_SETUP.md) | Config/connection reference: required env vars, SQL connection string format, ODBC driver setup, firewall rules |
 | [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md) | Step-by-step deployment runbook with copy-pasteable `az` CLI commands, from zero to a smoke-tested deployment |
@@ -53,7 +54,9 @@ alembic -c alembic_central.ini upgrade head   # provisions dbo (Tenant/User/Refr
 uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000/docs` for interactive API docs.
+Open `http://localhost:8000/docs` for interactive API docs, or see
+[`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for the full contract with sample
+requests/responses.
 
 ## Running Tests
 
