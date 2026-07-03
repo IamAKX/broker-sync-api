@@ -54,9 +54,9 @@ trading day. Column count and names are expected to change over time.
        │ ┌──────────────────┐                                 │
        │ │ dbo (central)    │  Tenant, User, RefreshToken     │
        │ ├──────────────────┤                                 │
-       │ │ tenant_acme_x7f2 │  Stock, Metric, DailyStockValue │
+       │ │ sundar_dss       │  Stock, Metric, DailyStockValue │
        │ ├──────────────────┤                                 │
-       │ │ tenant_beta_q2k9 │  Stock, Metric, DailyStockValue │
+       │ │ ravi_dss         │  Stock, Metric, DailyStockValue │
        │ └──────────────────┘                                 │
        └──────────────────────────────────────────────────────┘
 ```
@@ -67,10 +67,20 @@ One Azure SQL logical server, one database, one schema per tenant. Each schema c
 an identical set of tables (`Stock`, `Metric`, `DailyStockValue`). A shared `dbo` schema
 holds cross-tenant tables (`Tenant`, `User`, `RefreshToken`).
 
-Rationale: cheaper than database-per-tenant (Azure SQL bills per database), still gives
-real logical segregation (separate tables, separate namespaces, independent per-tenant
-migrations), and keeps connection pooling simple (one DB, many schemas) versus juggling
-a connection pool per physical database.
+Rationale: cheaper than database-per-tenant (Azure SQL bills per database, not per
+schema — this is the deciding factor: it keeps cost flat regardless of tenant count),
+still gives real logical segregation (separate tables, separate namespaces), and keeps
+connection pooling simple (one physical database, many schemas, one shared connection
+pool rebound per request via `schema_translate_map`) versus juggling a distinct
+connection pool per tenant.
+
+Each signup provisions its own schema, named from the signer's first name (e.g.
+`sundar_dss`; a second `Sundar` signup becomes `sundar1_dss`, `sundar2_dss`, ...).
+
+One tenant per signup today; assigning an *existing* tenant's schema to an additional
+email (multiple users sharing one tenant) is supported by the data model (`User.tenant_id`
+FK — many `User` rows can point at one `Tenant`) but has no self-service endpoint yet;
+it's a backend/admin operation for now (see §4).
 
 ### 2.3 Tenant Resolution (per request)
 
@@ -85,26 +95,28 @@ a connection pool per physical database.
 5. **The tenant is never taken from a client-supplied header or query param** — only
    from the signed JWT. This prevents a client from spoofing another tenant's ID.
 
-### 2.4 Signup / Tenant Provisioning (self-service, synchronous)
+### 2.4 Signup / Tenant Provisioning (self-service, synchronous, atomic)
 
-1. `POST /auth/signup {company_name, email, password}`.
+1. `POST /auth/signup {name, email, password}`.
 2. Validate inputs; check email not already registered (central `User` table).
-3. Generate a unique `schema_name` (slug of company name + short random suffix, e.g.
-   `tenant_acme_x7f2`) to avoid collisions and avoid leaking company names verbatim into
-   SQL identifiers.
-4. In one transaction against `dbo`: insert `Tenant` row, insert `User` row
-   (`role='owner'`).
-5. Run the tenant-scoped Alembic migration chain programmatically against the new
-   schema (`CREATE SCHEMA tenant_acme_x7f2;` then create `Stock`, `Metric`,
-   `DailyStockValue` tables in it).
-6. If schema creation or migration fails, roll back the `dbo` transaction (no orphaned
-   tenant/user rows) and return a 500 with a clear error; nothing partially provisioned
-   is left behind.
-7. On success, issue JWT + refresh token immediately — user is logged in without a
+3. Pick a candidate schema name: slugify the first word of `name`, append `_dss`
+   (e.g. `sundar_dss`). Check the central `Tenant` table for existing names with this
+   slug first (usually zero collisions) — `CREATE SCHEMA` itself remains the authority
+   on uniqueness, so a physical name collision advances to the next numeric suffix
+   (`sundar1_dss`, `sundar2_dss`, ...) regardless of what the pre-check found.
+4. In **one transaction**: `CREATE SCHEMA [<name>]`, then create `Stock`/`Metric`/
+   `DailyStockValue` in it via SQLAlchemy `metadata.create_all()` (no Alembic migration
+   for tenant tables — see §3.5), then insert `Tenant` row (`schema_name` = the name
+   from step 3), then insert `User` row (`role='owner'`).
+5. If **any** part of step 4 fails, the entire transaction rolls back — unlike a
+   cross-database operation, `CREATE SCHEMA` participates in a normal SQL Server
+   transaction, so there's no partial state to clean up and no compensating action
+   needed. Nothing partially provisioned is ever left behind.
+6. On success, issue JWT + refresh token immediately — user is logged in without a
    separate login step.
 
-This is synchronous because table creation for three empty tables is sub-second; no job
-queue is warranted at current scale (tens of tenants).
+This is synchronous because schema + table creation for three empty tables is
+sub-second; no job queue is warranted at current scale (tens of tenants).
 
 ### 2.5 Data Flow — Daily Upload
 
@@ -125,8 +137,17 @@ DataUploadService
      in this payload for this date are left untouched (no deletion)
       │
       ▼
-Azure SQL — tenant schema tables
+Azure SQL — this tenant's own schema
 ```
+
+**Why a new metric name never needs a schema change**: `Metric` is a catalog table —
+each distinct metric name (`PMHL_High`, `VAH`, a brand-new column that shows up in
+tomorrow's payload, ...) becomes a new *row* here, auto-registered the first time it's
+seen, not a new SQL column on `DailyStockValue`. Values live in `DailyStockValue`'s
+generic `value_number`/`value_text` columns, keyed by `metric_id`. This
+entity-attribute-value (EAV) shape is *why* the upload endpoint can accept an
+arbitrarily different set of metric keys on any given day with zero DDL — see §3.2 for
+the table shapes and §3.2's scenario table for exactly what happens in each case.
 
 ### 2.6 Data Flow — Reads
 
@@ -149,8 +170,8 @@ Azure SQL — tenant schema tables
 ```sql
 Tenant
   id            UNIQUEIDENTIFIER  PK, default newid()
-  name          NVARCHAR(200)     NOT NULL
-  schema_name   NVARCHAR(128)     NOT NULL UNIQUE
+  name          NVARCHAR(200)     NOT NULL   -- the signer's name, e.g. "Sundar"
+  schema_name   NVARCHAR(128)     NOT NULL UNIQUE   -- e.g. "sundar_dss"
   created_at    DATETIME2         NOT NULL default sysutcdatetime()
 
 User
@@ -170,6 +191,9 @@ RefreshToken
 ```
 
 ### 3.2 Per-Tenant Schema — Tables
+
+Created via SQLAlchemy `metadata.create_all()` directly against the tenant's own
+schema at signup (§2.4 step 4) — no Alembic migration chain for these tables (§3.5).
 
 ```sql
 Stock
@@ -220,7 +244,7 @@ catalog without deleting its historical rows.
 **Auth**
 | Method | Path | Description |
 |---|---|---|
-| POST | `/auth/signup` | Create tenant + owner user, provision schema, return JWT + refresh token |
+| POST | `/auth/signup` | Create tenant (own schema) + owner user, return JWT + refresh token |
 | POST | `/auth/login` | Verify credentials, return JWT + refresh token |
 | POST | `/auth/refresh` | Exchange valid refresh token for new access token |
 | POST | `/auth/logout` | Revoke refresh token |
@@ -290,27 +314,33 @@ actual recorded value of `0`.
 
 - **FastAPI** + **Pydantic v2** — routers thin, validation in schemas.
 - **SQLAlchemy 2.0** (async) with `pyodbc`/`aioodbc` driver for Azure SQL.
-- **Alembic** — two independent migration chains: one for `dbo` (central tables), one
-  "tenant template" chain replayed against each new schema at signup time.
+- **Alembic** — **one** migration chain, for `dbo` (central tables: `Tenant`, `User`,
+  `RefreshToken`). Tenant schemas have **no migration chain**: their three tables
+  (`Stock`/`Metric`/`DailyStockValue`) are created once, at signup, via SQLAlchemy's
+  `metadata.create_all()` directly against the ORM models (schema-bound via
+  `schema_translate_map`) — there's nothing to version because the table *shape* never
+  changes; only metric *rows* change (§2.5).
 - **pydantic-settings** — config via env vars (connection string, JWT secret, CORS).
 - **passlib[bcrypt]** — password hashing.
-- **pytest** + **httpx.AsyncClient** — API tests; a disposable test tenant schema
-  created/torn down per test session.
+- **pytest** + **httpx.AsyncClient** — API tests; each test signs up its own
+  disposable tenant schema, dropped in teardown.
 - **structlog** (or stdlib logging + JSON formatter) — every log line carries
   `tenant_id` and `request_id`.
 
 ### 3.6 Project Layout
 
 ```
-backend/
+app/
 ├── main.py                      # FastAPI app factory, startup/shutdown
 ├── core/
 │   ├── config.py                # Settings (pydantic-settings)
 │   ├── security.py              # JWT encode/decode, password hashing
+│   ├── deps.py                  # get_current_user, require_role
 │   └── logging.py
 ├── db/
 │   ├── central_session.py       # engine/session for dbo schema
 │   ├── tenant_session.py        # per-request schema-scoped session factory
+│   ├── deps.py                  # get_central_db, get_tenant_db
 │   └── base.py                  # declarative base(s)
 ├── models/
 │   ├── central.py                # Tenant, User, RefreshToken
@@ -323,16 +353,16 @@ backend/
 │   └── data.py
 ├── services/
 │   ├── auth_service.py
-│   ├── provisioning_service.py  # create schema + run migrations for new tenant
+│   ├── provisioning_service.py  # CREATE SCHEMA + create_all() for new tenant, atomic
 │   └── data_service.py          # upsert logic, pivot logic for snapshot reads
 ├── repositories/
 │   ├── stock_repo.py
 │   ├── metric_repo.py
 │   └── daily_value_repo.py
-├── migrations/
-│   ├── central/                 # Alembic env for dbo
-│   └── tenant/                  # Alembic env replayed per new tenant schema
-└── tests/
+└── exceptions.py
+migrations/
+└── central/                     # Alembic chain for dbo only
+tests/
 ```
 
 ### 3.7 Error Handling
@@ -343,7 +373,8 @@ Centralized exception handlers map domain exceptions to consistent JSON
 - `TenantNotFoundError` → 404
 - `DuplicateEmailError` → 409
 - `InvalidCredentialsError` → 401
-- `SchemaProvisioningError` → 500 (signup transaction rolled back)
+- `SchemaProvisioningError` → 500 (signup transaction rolled back — schema creation
+  participates in the same transaction as the Tenant/User inserts, see §2.4)
 - `InvalidTradeDateError` → 422
 - Anything else → standard FastAPI `HTTPException` / validation errors (422)
 
@@ -360,6 +391,10 @@ forgotten:
 - Rate limiting, audit logging, and per-tenant usage metering.
 - Elastic pool / multi-server sharding if tenant count grows well beyond current
   expectations.
+- **Admin endpoint to attach an additional email to an existing tenant** — the data
+  model already supports many `User` rows pointing at one `Tenant`/schema (§2.2), but
+  no self-service or admin API exists yet to do this; today it would be a manual DB
+  operation.
 - Metric type validation strictness (e.g. rejecting a text value for a metric already
   typed `number`) — current design accepts it into `value_text` as a fallback; a
   stricter policy can be layered in later without a schema change.
