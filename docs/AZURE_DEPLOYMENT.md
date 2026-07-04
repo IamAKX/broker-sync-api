@@ -15,6 +15,7 @@ pick your own globally-unique names where noted.
 
 1. Create an Azure account (skip if you already have one): https://azure.microsoft.com/free/
 2. Install the Azure CLI:
+
    ```bash
    # macOS
    brew update && brew install azure-cli
@@ -22,6 +23,7 @@ pick your own globally-unique names where noted.
    # verify
    az version
    ```
+
 3. Log in — opens a browser for auth:
    ```bash
    az login
@@ -31,6 +33,20 @@ pick your own globally-unique names where noted.
    az account list --output table
    az account set --subscription "<subscription-name-or-id>"
    ```
+5. Register Azure Resource Providers (first-time subscriptions only)
+
+```bash
+az provider register --namespace Microsoft.Resources
+az provider register --namespace Microsoft.Sql
+az provider register --namespace Microsoft.Web
+
+# Verify registration
+az provider show --namespace Microsoft.Resources --query registrationState -o tsv
+az provider show --namespace Microsoft.Sql --query registrationState -o tsv
+az provider show --namespace Microsoft.Web --query registrationState -o tsv
+```
+
+Wait until each provider reports `Registered` before continuing.
 
 ## 1. Set Shared Variables
 
@@ -38,11 +54,11 @@ Keeps the rest of the commands copy-pasteable without repeating values:
 
 ```bash
 export RG_NAME="rg-brokersync-dev"
-export LOCATION="eastus"
+export LOCATION="southindia"
 export SQL_SERVER_NAME="brokersync-dev-sql"        # must be globally unique
 export SQL_DB_NAME="brokersync"
 export SQL_ADMIN_USER="brokersync_admin"
-export SQL_ADMIN_PASSWORD="BrokerSync@2026"
+export SQL_ADMIN_PASSWORD="G7#Lm9AQv2@Xr8Pk"
 export APP_SERVICE_PLAN="brokersync-dev-plan"
 export WEBAPP_NAME="brokersync-dev-api"            # must be globally unique
 export JWT_SECRET="62726f6b657273796e632d6465762d7365637265742d6b65793332"
@@ -220,10 +236,10 @@ precious infrastructure at this phase.
 Per `AZURE_ARCHITECTURE.md` §0's deferred list — add these back when the trigger
 condition is met, not before:
 
-| Deferred item | Add it when... |
-|---|---|
-| Key Vault + Managed Identity | Real secrets or real tenant data exist |
-| VNet + Private Endpoint + NSG | Azure SQL needs to lose its public endpoint |
-| Application Insights + Log Analytics + Alerts | There's real traffic/SLOs worth watching |
-| Custom domain + Managed Certificate + deployment slots | There's a public launch and zero-downtime releases matter |
-| CI/CD (GitHub Actions / Azure DevOps) | Explicitly deferred by request — this doc's `az webapp deploy` step is the manual equivalent |
+| Deferred item                                          | Add it when...                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Key Vault + Managed Identity                           | Real secrets or real tenant data exist                                                       |
+| VNet + Private Endpoint + NSG                          | Azure SQL needs to lose its public endpoint                                                  |
+| Application Insights + Log Analytics + Alerts          | There's real traffic/SLOs worth watching                                                     |
+| Custom domain + Managed Certificate + deployment slots | There's a public launch and zero-downtime releases matter                                    |
+| CI/CD (GitHub Actions / Azure DevOps)                  | Explicitly deferred by request — this doc's `az webapp deploy` step is the manual equivalent |
