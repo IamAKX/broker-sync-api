@@ -2,6 +2,7 @@
 .claude/
 .remember/
 .superpowers/
+docs/superpowers/
 
 # Python
 __pycache__/
