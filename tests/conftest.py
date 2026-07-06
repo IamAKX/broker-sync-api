@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.db.central_session import CentralSessionLocal
 from app.main import app
 
-# Tests run against a real dev Azure SQL database (per project convention — no
+# Tests run against a real local PostgreSQL database (per project convention — no
 # mocked DB layer). Each test gets its own tenant schema via a random first-name-like
 # fixture; every tenant schema created during the session is tracked via the central
 # Tenant table and dropped in the autouse teardown below.
@@ -43,24 +43,21 @@ def unique_name() -> str:
 
 
 async def _drop_tenant_schema(session, schema_name: str) -> None:
-    # SQL Server refuses DROP SCHEMA while it still contains objects, so tables
-    # are dropped first.
-    for table in ("DailyStockValue", "Metric", "Stock"):
-        await session.execute(
-            text(f"IF OBJECT_ID('[{schema_name}].[{table}]', 'U') IS NOT NULL DROP TABLE [{schema_name}].[{table}]")
-        )
-    await session.execute(text(f"DROP SCHEMA IF EXISTS [{schema_name}]"))
+    # Postgres DROP SCHEMA ... CASCADE removes the schema and everything in it in one
+    # statement — no need to drop tables individually first (that was a SQL Server
+    # workaround for its "can't drop a non-empty schema" restriction).
+    await session.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
 
 
 @pytest.fixture(autouse=True)
 async def _track_and_drop_tenant_schemas():
     yield
     async with CentralSessionLocal() as session:
-        result = await session.execute(text("SELECT schema_name FROM [Tenant]"))
+        result = await session.execute(text('SELECT schema_name FROM "Tenant"'))
         schema_names = [row[0] for row in result.all()]
         for schema_name in schema_names:
             await _drop_tenant_schema(session, schema_name)
-        await session.execute(text("DELETE FROM [RefreshToken]"))
-        await session.execute(text("DELETE FROM [User]"))
-        await session.execute(text("DELETE FROM [Tenant]"))
+        await session.execute(text('DELETE FROM "RefreshToken"'))
+        await session.execute(text('DELETE FROM "User"'))
+        await session.execute(text('DELETE FROM "Tenant"'))
         await session.commit()
