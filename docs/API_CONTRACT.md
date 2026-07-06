@@ -14,8 +14,8 @@ Interactive, always-current docs are also available at `/docs` (Swagger UI) and
 
 ## Conventions
 
-- **Base URL**: `http://localhost:8000` locally; `https://<webapp-name>.azurewebsites.net`
-  when deployed (see [`AZURE_DEPLOYMENT.md`](AZURE_DEPLOYMENT.md)).
+- **Base URL**: `http://localhost:8000` locally; `http://<ec2-public-ip>:8000`
+  when deployed (see [`AWS_DEPLOYMENT.md`](AWS_DEPLOYMENT.md)).
 - **Content type**: `application/json` for all request and response bodies.
 - **Auth**: `Authorization: Bearer <access_token>` header on every `/data/*` endpoint
   and none of the `/auth/*` endpoints. The token is issued by signup/login/refresh.

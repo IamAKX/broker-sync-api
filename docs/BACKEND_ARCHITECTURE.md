@@ -13,7 +13,7 @@ trading day. Column count and names are expected to change over time.
 ## 1. Goals & Constraints
 
 - FastAPI, production-grade structure (routers/services/repositories, DI, typed schemas).
-- Azure SQL as the database.
+- PostgreSQL (AWS RDS) as the database.
 - Multi-tenant: each client ("tenant") gets logically segregated data.
 - Users table for authentication.
 - Daily stock data upload where the **set of metric columns varies day to day** —
@@ -49,10 +49,10 @@ trading day. Column count and names are expected to change over time.
                             │
                             ▼
        ┌──────────────────────────────────────────────────────┐
-       │                   Azure SQL Server                   │
+       │                  RDS PostgreSQL                       │
        │                                                      │
        │ ┌──────────────────┐                                 │
-       │ │ dbo (central)    │  Tenant, User, RefreshToken     │
+       │ │ public (central) │  Tenant, User, RefreshToken     │
        │ ├──────────────────┤                                 │
        │ │ sundar_dss       │  Stock, Metric, DailyStockValue │
        │ ├──────────────────┤                                 │
@@ -63,11 +63,11 @@ trading day. Column count and names are expected to change over time.
 
 ### 2.2 Multi-Tenancy Model: Schema-per-Tenant
 
-One Azure SQL logical server, one database, one schema per tenant. Each schema contains
-an identical set of tables (`Stock`, `Metric`, `DailyStockValue`). A shared `dbo` schema
-holds cross-tenant tables (`Tenant`, `User`, `RefreshToken`).
+One RDS PostgreSQL instance, one database, one schema per tenant. Each schema contains
+an identical set of tables (`Stock`, `Metric`, `DailyStockValue`). A shared `public`
+schema holds cross-tenant tables (`Tenant`, `User`, `RefreshToken`).
 
-Rationale: cheaper than database-per-tenant (Azure SQL bills per database, not per
+Rationale: cheaper than database-per-tenant (RDS bills per instance, not per database or
 schema — this is the deciding factor: it keeps cost flat regardless of tenant count),
 still gives real logical segregation (separate tables, separate namespaces), and keeps
 connection pooling simple (one physical database, many schemas, one shared connection
@@ -109,7 +109,7 @@ it's a backend/admin operation for now (see §4).
    for tenant tables — see §3.5), then insert `Tenant` row (`schema_name` = the name
    from step 3), then insert `User` row (`role='owner'`).
 5. If **any** part of step 4 fails, the entire transaction rolls back — unlike a
-   cross-database operation, `CREATE SCHEMA` participates in a normal SQL Server
+   cross-database operation, `CREATE SCHEMA` participates in a normal PostgreSQL
    transaction, so there's no partial state to clean up and no compensating action
    needed. Nothing partially provisioned is ever left behind.
 6. On success, issue JWT + refresh token immediately — user is logged in without a
@@ -137,7 +137,7 @@ DataUploadService
      in this payload for this date are left untouched (no deletion)
       │
       ▼
-Azure SQL — this tenant's own schema
+RDS PostgreSQL — this tenant's own schema
 ```
 
 **Why a new metric name never needs a schema change**: `Metric` is a catalog table —
@@ -169,25 +169,25 @@ the table shapes and §3.2's scenario table for exactly what happens in each cas
 
 ```sql
 Tenant
-  id            UNIQUEIDENTIFIER  PK, default newid()
-  name          NVARCHAR(200)     NOT NULL   -- the signer's name, e.g. "Sundar"
-  schema_name   NVARCHAR(128)     NOT NULL UNIQUE   -- e.g. "sundar_dss"
-  created_at    DATETIME2         NOT NULL default sysutcdatetime()
+  id            UUID          PK, default gen_random_uuid()
+  name          VARCHAR(200)  NOT NULL   -- the signer's name, e.g. "Sundar"
+  schema_name   VARCHAR(128)  NOT NULL UNIQUE   -- e.g. "sundar_dss"
+  created_at    TIMESTAMP     NOT NULL default now()
 
 User
-  id             UNIQUEIDENTIFIER PK, default newid()
-  tenant_id      UNIQUEIDENTIFIER NOT NULL FK -> Tenant.id
-  email          NVARCHAR(320)    NOT NULL UNIQUE
-  password_hash  NVARCHAR(255)    NOT NULL
-  role           NVARCHAR(20)     NOT NULL   -- 'owner' | 'member'
-  created_at     DATETIME2        NOT NULL default sysutcdatetime()
+  id             UUID         PK, default gen_random_uuid()
+  tenant_id      UUID         NOT NULL FK -> Tenant.id
+  email          VARCHAR(320) NOT NULL UNIQUE
+  password_hash  VARCHAR(255) NOT NULL
+  role           VARCHAR(20)  NOT NULL   -- 'owner' | 'member'
+  created_at     TIMESTAMP    NOT NULL default now()
 
 RefreshToken
-  id            UNIQUEIDENTIFIER PK, default newid()
-  user_id       UNIQUEIDENTIFIER NOT NULL FK -> User.id
-  token_hash    NVARCHAR(255)    NOT NULL
-  expires_at    DATETIME2        NOT NULL
-  revoked_at    DATETIME2        NULL
+  id            UUID         PK, default gen_random_uuid()
+  user_id       UUID         NOT NULL FK -> User.id
+  token_hash    VARCHAR(255) NOT NULL
+  expires_at    TIMESTAMP    NOT NULL
+  revoked_at    TIMESTAMP    NULL
 ```
 
 ### 3.2 Per-Tenant Schema — Tables
@@ -197,25 +197,25 @@ schema at signup (§2.4 step 4) — no Alembic migration chain for these tables 
 
 ```sql
 Stock
-  id            INT IDENTITY PK
-  symbol        NVARCHAR(50)   NOT NULL UNIQUE   -- e.g. "RADICO"
-  display_name  NVARCHAR(200)  NULL              -- e.g. "Radico Khaitan Limited"
-  is_active     BIT            NOT NULL default 1
+  id            SERIAL        PK
+  symbol        VARCHAR(50)   NOT NULL UNIQUE   -- e.g. "RADICO"
+  display_name  VARCHAR(200)  NULL              -- e.g. "Radico Khaitan Limited"
+  is_active     BOOLEAN       NOT NULL default true
 
 Metric
-  id            INT IDENTITY PK
-  name          NVARCHAR(100)  NOT NULL UNIQUE   -- e.g. "PMHL_High", "VAH"
-  data_type     NVARCHAR(10)   NOT NULL          -- 'number' | 'text'
-  is_active     BIT            NOT NULL default 1
-  created_at    DATETIME2      NOT NULL default sysutcdatetime()
+  id            SERIAL        PK
+  name          VARCHAR(100)  NOT NULL UNIQUE   -- e.g. "PMHL_High", "VAH"
+  data_type     VARCHAR(10)   NOT NULL          -- 'number' | 'text'
+  is_active     BOOLEAN       NOT NULL default true
+  created_at    TIMESTAMP     NOT NULL default now()
 
 DailyStockValue
-  trade_date    DATE           NOT NULL
-  stock_id      INT            NOT NULL FK -> Stock.id
-  metric_id     INT            NOT NULL FK -> Metric.id
-  value_number  DECIMAL(18,4)  NULL
-  value_text    NVARCHAR(200)  NULL
-  updated_at    DATETIME2      NOT NULL default sysutcdatetime()
+  trade_date    DATE          NOT NULL
+  stock_id      INT           NOT NULL FK -> Stock.id
+  metric_id     INT           NOT NULL FK -> Metric.id
+  value_number  DECIMAL(18,4) NULL
+  value_text    VARCHAR(200)  NULL
+  updated_at    TIMESTAMP     NOT NULL default now()
   PRIMARY KEY (trade_date, stock_id, metric_id)
 
 -- Supporting indexes:
@@ -297,7 +297,7 @@ actual recorded value of `0`.
 ### 3.4 Auth & Security Details
 
 - Passwords hashed with `bcrypt` via `passlib`.
-- Access JWT: `HS256`, ~30 min expiry, secret from Azure Key Vault (or env var locally).
+- Access JWT: `HS256`, ~30 min expiry, secret from an env var (`.env` locally, Secrets Manager in production).
   Payload: `{sub, tenant_id, schema_name, role, exp}`.
 - Refresh token: opaque random token, ~7 day expiry, stored **hashed** in
   `RefreshToken`, revocable (logout / password change invalidates it).
@@ -313,7 +313,7 @@ actual recorded value of `0`.
 ### 3.5 Tech Stack
 
 - **FastAPI** + **Pydantic v2** — routers thin, validation in schemas.
-- **SQLAlchemy 2.0** (async) with `pyodbc`/`aioodbc` driver for Azure SQL.
+- **SQLAlchemy 2.0** (async) with `asyncpg`/`psycopg` driver for PostgreSQL.
 - **Alembic** — **one** migration chain, for `dbo` (central tables: `Tenant`, `User`,
   `RefreshToken`). Tenant schemas have **no migration chain**: their three tables
   (`Stock`/`Metric`/`DailyStockValue`) are created once, at signup, via SQLAlchemy's
