@@ -58,16 +58,6 @@ Open `http://localhost:8000/docs` for interactive API docs, or see
 [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for the full contract with sample
 requests/responses.
 
-## Running Tests
-
-```bash
-pytest
-```
-
-Tests sign up disposable tenants (each getting its own real tenant schema) against a
-local PostgreSQL database and drop those schemas in teardown — no mocking of the
-database layer.
-
 ## Deploying
 
 See [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md) for the full runbook. Once AWS
@@ -93,5 +83,4 @@ app/
 └── exceptions.py      # domain exceptions + handlers
 migrations/
 └── central/          # Alembic chain for public only — tenant schemas have no migration chain
-tests/
 ```

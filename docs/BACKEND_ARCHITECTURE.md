@@ -322,8 +322,6 @@ actual recorded value of `0`.
   changes; only metric *rows* change (§2.5).
 - **pydantic-settings** — config via env vars (connection string, JWT secret, CORS).
 - **passlib[bcrypt]** — password hashing.
-- **pytest** + **httpx.AsyncClient** — API tests; each test signs up its own
-  disposable tenant schema, dropped in teardown.
 - **structlog** (or stdlib logging + JSON formatter) — every log line carries
   `tenant_id` and `request_id`.
 
@@ -362,7 +360,6 @@ app/
 └── exceptions.py
 migrations/
 └── central/                     # Alembic chain for public only
-tests/
 ```
 
 ### 3.7 Error Handling
