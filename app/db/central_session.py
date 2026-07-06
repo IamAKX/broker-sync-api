@@ -4,9 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 
-# Basic-tier Azure SQL (5 DTU) has very little concurrency headroom — a larger pool
-# just queues requests at the database instead of helping, so it's kept deliberately
-# small. pool_pre_ping guards against Azure SQL's idle-connection resets.
+# RDS db.t3.micro's max_connections default (~66) is generous relative to a single
+# dev-phase EC2 instance, but the pool is still kept modest — a larger pool just queues
+# requests at the database instead of helping. pool_pre_ping guards against RDS's
+# idle-connection resets.
 central_engine = create_async_engine(
     settings.sql_connection_url,
     pool_size=5,
