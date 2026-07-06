@@ -99,7 +99,9 @@ az sql server firewall-rule create \
   --end-ip-address 0.0.0.0
 
 # Firewall rule: allow your current machine to connect (for migrations/local dev)
-MY_IP=$(curl -s https://api.ipify.org)
+# If this doesn't resolve on your network, try https://ifconfig.me or
+# https://icanhazip.com instead.
+MY_IP=$(curl -s https://checkip.amazonaws.com)
 az sql server firewall-rule create \
   --resource-group "$RG_NAME" \
   --server "$SQL_SERVER_NAME" \

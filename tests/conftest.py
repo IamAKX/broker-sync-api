@@ -6,7 +6,6 @@ from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-from app.core.config import settings
 from app.db.central_session import CentralSessionLocal
 from app.main import app
 
@@ -18,8 +17,10 @@ from app.main import app
 
 @pytest.fixture(scope="session", autouse=True)
 def _apply_central_migrations():
+    # migrations/central/env.py builds its own connection URL directly from
+    # Settings (bypassing Alembic's ConfigParser, which chokes on "%" in a
+    # percent-encoded password) — no need to set sqlalchemy.url here.
     config = Config("alembic_central.ini")
-    config.set_main_option("sqlalchemy.url", settings.sql_sync_connection_url)
     command.upgrade(config, "head")
     yield
 
