@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     sql_database: str
     sql_user: str
     sql_password: str
-    sql_driver: str = "ODBC Driver 18 for SQL Server"
 
     jwt_secret: str
     jwt_access_expiry_minutes: int = 30
@@ -30,21 +29,16 @@ class Settings(BaseSettings):
 
     @property
     def sql_connection_url(self) -> str:
-        return self._build_sql_url(dialect="mssql+aioodbc")
+        return self._build_sql_url(dialect="postgresql+asyncpg")
 
     @property
     def sql_sync_connection_url(self) -> str:
-        """Sync (pyodbc) URL for Alembic, which does not support async engines."""
-        return self._build_sql_url(dialect="mssql+pyodbc")
+        """Sync (psycopg) URL for Alembic, which does not support async engines."""
+        return self._build_sql_url(dialect="postgresql+psycopg")
 
     def _build_sql_url(self, dialect: str) -> str:
-        driver = quote_plus(self.sql_driver)
         password = quote_plus(self.sql_password)
-        return (
-            f"{dialect}://{self.sql_user}:{password}"
-            f"@{self.sql_server}:1433/{self.sql_database}"
-            f"?driver={driver}&Encrypt=yes&TrustServerCertificate=no"
-        )
+        return f"{dialect}://{self.sql_user}:{password}@{self.sql_server}:5432/{self.sql_database}"
 
 
 settings = Settings()
