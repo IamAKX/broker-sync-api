@@ -165,7 +165,7 @@ the table shapes and §3.2's scenario table for exactly what happens in each cas
 
 ## 3. Low-Level Design (LLD)
 
-### 3.1 Central Schema (`dbo`) — Tables
+### 3.1 Central Schema (`public`) — Tables
 
 ```sql
 Tenant
@@ -306,7 +306,7 @@ actual recorded value of `0`.
   `schema_name` in the verified JWT.
 - `require_role("owner")` — dependency for future admin-only endpoints (metric
   management, user management within a tenant).
-- All cross-tenant table access happens only through `dbo`-scoped sessions used
+- All cross-tenant table access happens only through `public`-scoped sessions used
   strictly by `auth` routes; all business-data access happens only through
   tenant-scoped sessions — the two session types are never mixed in one request.
 
@@ -314,7 +314,7 @@ actual recorded value of `0`.
 
 - **FastAPI** + **Pydantic v2** — routers thin, validation in schemas.
 - **SQLAlchemy 2.0** (async) with `asyncpg`/`psycopg` driver for PostgreSQL.
-- **Alembic** — **one** migration chain, for `dbo` (central tables: `Tenant`, `User`,
+- **Alembic** — **one** migration chain, for `public` (central tables: `Tenant`, `User`,
   `RefreshToken`). Tenant schemas have **no migration chain**: their three tables
   (`Stock`/`Metric`/`DailyStockValue`) are created once, at signup, via SQLAlchemy's
   `metadata.create_all()` directly against the ORM models (schema-bound via
@@ -338,7 +338,7 @@ app/
 │   ├── deps.py                  # get_current_user, require_role
 │   └── logging.py
 ├── db/
-│   ├── central_session.py       # engine/session for dbo schema
+│   ├── central_session.py       # engine/session for public schema
 │   ├── tenant_session.py        # per-request schema-scoped session factory
 │   ├── deps.py                  # get_central_db, get_tenant_db
 │   └── base.py                  # declarative base(s)
@@ -361,7 +361,7 @@ app/
 │   └── daily_value_repo.py
 └── exceptions.py
 migrations/
-└── central/                     # Alembic chain for dbo only
+└── central/                     # Alembic chain for public only
 tests/
 ```
 

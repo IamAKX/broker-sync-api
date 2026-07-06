@@ -11,7 +11,7 @@ multi-tenant API.
 ## Architecture
 
 - **Multi-tenancy**: schema-per-tenant on a single RDS PostgreSQL database — one shared
-  `dbo` schema for `Tenant`/`User`/`RefreshToken`, one schema per tenant for
+  `public` schema for `Tenant`/`User`/`RefreshToken`, one schema per tenant for
   `Stock`/`Metric`/`DailyStockValue`, named from the signer's first name (e.g.
   `sundar_dss`; a collision becomes `sundar1_dss`). Tenant is resolved only from the
   signed JWT, never from client input. Tenant tables are created directly via
@@ -19,7 +19,7 @@ multi-tenant API.
   chain, no ALTER TABLE, ever: new metric names become new catalog rows, not new
   columns.
 - **Layering**: routers (thin, validation only) → services (business logic) →
-  repositories (all SQL, bulk upsert via SQL `MERGE`) — see
+  repositories (all SQL, bulk upsert via `INSERT ... ON CONFLICT`) — see
   [`docs/BACKEND_ARCHITECTURE.md`](docs/BACKEND_ARCHITECTURE.md) for the full HLD/LLD.
 - **Infra**: EC2 + RDS PostgreSQL, currently running the minimal dev-phase stack
   ($0/month for the first 12 months on the AWS free tier, then ~$22/month, flat
@@ -50,7 +50,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # fill in SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD, JWT_SECRET
 
-alembic -c alembic_central.ini upgrade head   # provisions dbo (Tenant/User/RefreshToken)
+alembic -c alembic_central.ini upgrade head   # provisions public (Tenant/User/RefreshToken)
 uvicorn app.main:app --reload
 ```
 
@@ -92,6 +92,6 @@ app/
 ├── repositories/      # all SQL, bulk upsert/query logic
 └── exceptions.py      # domain exceptions + handlers
 migrations/
-└── central/          # Alembic chain for dbo only — tenant schemas have no migration chain
+└── central/          # Alembic chain for public only — tenant schemas have no migration chain
 tests/
 ```
