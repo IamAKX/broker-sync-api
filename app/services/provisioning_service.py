@@ -11,11 +11,11 @@ from app.exceptions import SchemaProvisioningError
 from app.models.central import Tenant
 
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
-# SQL Server error 2714: "There is already an object named '...' in the database" —
-# schema names share a namespace with other database principals, so a duplicate
-# CREATE SCHEMA raises this. Verify against a real Azure SQL instance before relying
-# on it in production; if the code differs, update this constant.
-_SQL_SCHEMA_ALREADY_EXISTS = "2714"
+# Postgres SQLSTATE 42P06: "schema already exists" — schema names share a namespace
+# with other schemas in the database, so a duplicate CREATE SCHEMA raises this. Verify
+# against a real Postgres instance before relying on it in production; if the code
+# differs, update this constant.
+_PG_SCHEMA_ALREADY_EXISTS = "42P06"
 _MAX_NAME_CANDIDATES = 1000
 
 
@@ -39,7 +39,7 @@ async def next_candidate_name(central_session: AsyncSession, name: str) -> Async
     zero CREATE SCHEMA round-trips — CREATE SCHEMA itself stays authoritative for the
     rare case of a schema existing physically with no matching Tenant row.
     """
-    result = await central_session.execute(text("SELECT schema_name FROM [Tenant]"))
+    result = await central_session.execute(text('SELECT schema_name FROM "Tenant"'))
     taken = {row[0] for row in result.all()}
 
     for attempt in range(_MAX_NAME_CANDIDATES):
@@ -55,7 +55,7 @@ def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> 
     atomic transaction: if anything fails, the whole thing rolls back together and no
     partial schema/tenant/user state is left behind.
     """
-    connection.execute(text(f"CREATE SCHEMA [{schema_name}]"))
+    connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
     scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
     TenantBase.metadata.create_all(scoped_connection)
 
@@ -75,7 +75,7 @@ async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:
         try:
             await connection.run_sync(_create_schema_and_tables_sync, candidate)
         except DBAPIError as exc:
-            if _SQL_SCHEMA_ALREADY_EXISTS in str(exc.orig):
+            if _PG_SCHEMA_ALREADY_EXISTS in str(exc.orig):
                 continue
             raise SchemaProvisioningError(f"Failed to provision tenant schema: {exc}") from exc
         schema_name = candidate
