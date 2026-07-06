@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import DailyStockValue, Metric, Stock
 
-# SQL Server allows ~2100 parameters per statement; each row binds 5 params
-# (trade_date, stock_id, metric_id, value_number, value_text), so batches are kept
-# well under that ceiling.
+# Postgres allows 65535 params per statement; each row binds 5 params (trade_date,
+# stock_id, metric_id, value_number, value_text). 400 is a conservative batch size kept
+# for readability and to bound per-statement lock scope, not because of a param ceiling.
 _MERGE_BATCH_SIZE = 400
 
 
@@ -30,9 +30,8 @@ class DailyValueRow:
 
 
 async def bulk_upsert_daily_values(session: AsyncSession, rows: list[DailyValueRow]) -> int:
-    """Upserts (trade_date, stock_id, metric_id) rows using a single SQL MERGE per
-    batch, instead of one round-trip per row — the primary lever for upload latency
-    on a Basic-tier (5 DTU) database at "lots of data" volume.
+    """Upserts (trade_date, stock_id, metric_id) rows using a single SQL
+    INSERT ... ON CONFLICT per batch, instead of one round-trip per row.
 
     Values omitted from a re-upload for an existing date are left untouched (no
     deletion), matching BACKEND_ARCHITECTURE.md §2.5.
@@ -42,11 +41,11 @@ async def bulk_upsert_daily_values(session: AsyncSession, rows: list[DailyValueR
         batch = rows[start : start + _MERGE_BATCH_SIZE]
         if not batch:
             continue
-        total += await _merge_batch(session, batch)
+        total += await _upsert_batch(session, batch)
     return total
 
 
-async def _merge_batch(session: AsyncSession, batch: list[DailyValueRow]) -> int:
+async def _upsert_batch(session: AsyncSession, batch: list[DailyValueRow]) -> int:
     values_clauses = []
     params: dict[str, object] = {}
     for i, row in enumerate(batch):
@@ -57,25 +56,15 @@ async def _merge_batch(session: AsyncSession, batch: list[DailyValueRow]) -> int
         params[f"value_number_{i}"] = row.value_number
         params[f"value_text_{i}"] = row.value_text
 
-    stock_table = Stock.__table__.name
-    metric_table = Metric.__table__.name
     dsv_table = DailyStockValue.__table__.name
 
     sql = f"""
-        MERGE INTO [{dsv_table}] AS target
-        USING (VALUES {", ".join(values_clauses)})
-            AS source (trade_date, stock_id, metric_id, value_number, value_text)
-        ON target.trade_date = source.trade_date
-           AND target.stock_id = source.stock_id
-           AND target.metric_id = source.metric_id
-        WHEN MATCHED THEN
-            UPDATE SET
-                value_number = source.value_number,
-                value_text = source.value_text,
-                updated_at = SYSUTCDATETIME()
-        WHEN NOT MATCHED THEN
-            INSERT (trade_date, stock_id, metric_id, value_number, value_text)
-            VALUES (source.trade_date, source.stock_id, source.metric_id, source.value_number, source.value_text);
+        INSERT INTO "{dsv_table}" (trade_date, stock_id, metric_id, value_number, value_text)
+        VALUES {", ".join(values_clauses)}
+        ON CONFLICT (trade_date, stock_id, metric_id) DO UPDATE SET
+            value_number = EXCLUDED.value_number,
+            value_text = EXCLUDED.value_text,
+            updated_at = now();
     """
     result = await session.execute(text(sql), params)
     return result.rowcount or 0
@@ -88,9 +77,9 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     sql = text(
         f"""
         SELECT s.symbol, s.display_name, m.name AS metric_name, dsv.value_number, dsv.value_text
-        FROM [{DailyStockValue.__table__.name}] dsv
-        JOIN [{Stock.__table__.name}] s ON s.id = dsv.stock_id
-        JOIN [{Metric.__table__.name}] m ON m.id = dsv.metric_id
+        FROM "{DailyStockValue.__table__.name}" dsv
+        JOIN "{Stock.__table__.name}" s ON s.id = dsv.stock_id
+        JOIN "{Metric.__table__.name}" m ON m.id = dsv.metric_id
         WHERE dsv.trade_date = :trade_date
         """
     )
@@ -99,7 +88,7 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
 
 
 async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
-    sql = text(f"SELECT MAX(trade_date) AS latest FROM [{DailyStockValue.__table__.name}]")
+    sql = text(f'SELECT MAX(trade_date) AS latest FROM "{DailyStockValue.__table__.name}"')
     result = await session.execute(sql)
     return result.scalar_one_or_none()
 
@@ -116,7 +105,7 @@ async def fetch_timeseries_rows(
     """
     sql = f"""
         SELECT trade_date, value_number, value_text
-        FROM [{DailyStockValue.__table__.name}]
+        FROM "{DailyStockValue.__table__.name}"
         WHERE stock_id = :stock_id AND metric_id = :metric_id
     """
     params: dict[str, object] = {"stock_id": stock_id, "metric_id": metric_id}
