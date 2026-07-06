@@ -56,8 +56,13 @@ def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> 
     partial schema/tenant/user state is left behind.
     """
     connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+    # execution_options() mutates `connection` in place and returns the same object, so
+    # the schema_translate_map set here would otherwise leak onto every later statement
+    # on this connection (including the caller's central-schema Tenant/User inserts) —
+    # reset it back to no-op immediately after create_all() finishes using it.
     scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
     TenantBase.metadata.create_all(scoped_connection)
+    connection.execution_options(schema_translate_map=None)
 
 
 async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:

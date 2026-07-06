@@ -39,9 +39,11 @@ async def signup(session: AsyncSession, name: str, email: str, password: str) ->
     if existing.scalar_one_or_none() is not None:
         raise DuplicateEmailError("Email already registered")
 
-    async with session.begin():
-        # Schema creation, tenant tables, and the Tenant/User inserts below all share
-        # this one transaction — if anything fails, everything rolls back together
+    async with session.begin_nested():
+        # The SELECT above already autobegan the session's outer transaction, so we
+        # open a SAVEPOINT here instead of a new top-level transaction. Schema creation,
+        # tenant tables, and the Tenant/User inserts below all still share one overall
+        # transaction — if anything fails, everything rolls back together
         # (BACKEND_ARCHITECTURE.md §2.4), no orphaned schema or partial rows possible.
         tenant = await provision_tenant(session, name)
         session.add(tenant)
@@ -57,6 +59,11 @@ async def signup(session: AsyncSession, name: str, email: str, password: str) ->
         await session.flush()
 
         tokens = await _issue_tokens(session, user, tenant)
+
+    # begin_nested() only manages the SAVEPOINT above — unlike the begin() context
+    # manager it replaces, it does not commit the outer (autobegun) transaction on
+    # exit, so an explicit commit is required here, matching login()/refresh() below.
+    await session.commit()
 
     return tokens
 
