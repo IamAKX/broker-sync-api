@@ -32,7 +32,7 @@ class Metric(TenantBase):
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     data_type: Mapped[str] = mapped_column(String(10), nullable=False)  # 'number' | 'text'
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.sysutcdatetime())
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
 class DailyStockValue(TenantBase):
@@ -43,7 +43,7 @@ class DailyStockValue(TenantBase):
     metric_id: Mapped[int] = mapped_column(Integer, ForeignKey("Metric.id"), primary_key=True)
     value_number: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
     value_text: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.sysutcdatetime())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     stock: Mapped["Stock"] = relationship()
     metric: Mapped["Metric"] = relationship()
