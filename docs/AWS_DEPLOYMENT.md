@@ -234,7 +234,49 @@ curl -s "$BASE_URL/historic/latest" -H "Authorization: Bearer $ACCESS_TOKEN"
 If the last command returns the uploaded row with `"PMC": 100.5`, the deployment is
 fully working end-to-end.
 
-## 8. Tear Down (cost control between work sessions)
+## 8. Connect to the Database Locally
+
+RDS is created `--no-publicly-accessible` (§3) and its security group only allows
+port 5432 from the EC2 security group (§2) — your laptop can't reach it directly.
+Two ways around that:
+
+### 8a. SSH Tunnel via EC2 (recommended, no security group change)
+
+EC2 can already reach RDS, so tunnel through it:
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" -N -L 5432:"$RDS_ENDPOINT":5432 ec2-user@"$EC2_PUBLIC_IP"
+```
+
+Leave that running, then in another terminal connect to `localhost:5432` as normal:
+
+```bash
+psql "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
+```
+
+No RDS security group change needed — traffic rides the existing EC2→RDS rule.
+
+### 8b. Direct Connection (temporary, opens RDS to your IP)
+
+Only if you need a GUI client that can't tunnel, or don't have EC2 access. Adds a
+network rule exposing RDS to your current public IP — **remove it when done**:
+
+```bash
+MY_IP=$(curl -s https://checkip.amazonaws.com)
+aws ec2 authorize-security-group-ingress --group-id "$RDS_SG_ID" \
+  --protocol tcp --port 5432 --cidr "${MY_IP}/32"
+
+psql "postgresql://$DB_USER:$DB_PASSWORD@$RDS_ENDPOINT:5432/$DB_NAME"
+
+# revoke once finished — don't leave RDS open to the internet
+aws ec2 revoke-security-group-ingress --group-id "$RDS_SG_ID" \
+  --protocol tcp --port 5432 --cidr "${MY_IP}/32"
+```
+
+Your IP changes across networks/reconnects — re-run the `authorize` step with a fresh
+`MY_IP` if the connection stops working.
+
+## 9. Tear Down (cost control between work sessions)
 
 Stop (don't terminate) the EC2 instance to pause compute billing while keeping the EIP,
 disk, and config intact:
