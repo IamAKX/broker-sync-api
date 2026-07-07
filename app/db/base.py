@@ -6,4 +6,4 @@ class CentralBase(DeclarativeBase):
 
 
 class TenantBase(DeclarativeBase):
-    """Metadata for tables replayed into each per-tenant schema (Stock, Metric, DailyStockValue)."""
+    """Metadata for tables replayed into each per-tenant schema (Stock, Metric, HistoricalStockValue)."""

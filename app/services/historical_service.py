@@ -3,16 +3,16 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import InvalidTradeDateError
-from app.repositories.daily_value_repo import (
-    DailyValueRow,
-    bulk_upsert_daily_values,
+from app.repositories.historical_value_repo import (
+    HistoricalValueRow,
+    bulk_upsert_historical_values,
     fetch_latest_trade_date,
     fetch_snapshot_rows,
     fetch_timeseries_rows,
 )
 from app.repositories.metric_repo import bulk_get_or_create_metrics, get_metric_by_name
 from app.repositories.stock_repo import bulk_get_or_create_stocks, get_stock_by_symbol
-from app.schemas.data import (
+from app.schemas.historic import (
     SnapshotResponse,
     StockSnapshot,
     TimeseriesPoint,
@@ -28,7 +28,7 @@ def _infer_data_type(value: float | str | None) -> str:
     return "number" if isinstance(value, (int, float)) else "text"
 
 
-async def upsert_daily_upload(session: AsyncSession, payload: UploadRequest) -> UploadResponse:
+async def upsert_historical_upload(session: AsyncSession, payload: UploadRequest) -> UploadResponse:
     if payload.trade_date > date.today():
         raise InvalidTradeDateError("trade_date cannot be in the future")
 
@@ -41,14 +41,14 @@ async def upsert_daily_upload(session: AsyncSession, payload: UploadRequest) -> 
             metric_types.setdefault(metric_name, _infer_data_type(value))
     metric_name_to_id = await bulk_get_or_create_metrics(session, metric_types)
 
-    value_rows: list[DailyValueRow] = []
+    value_rows: list[HistoricalValueRow] = []
     for row in payload.rows:
         stock_id = symbol_to_stock_id[row.symbol]
         for metric_name, value in row.metrics.items():
             metric_id = metric_name_to_id[metric_name]
             is_number = metric_types[metric_name] == "number"
             value_rows.append(
-                DailyValueRow(
+                HistoricalValueRow(
                     trade_date=payload.trade_date,
                     stock_id=stock_id,
                     metric_id=metric_id,
@@ -57,7 +57,7 @@ async def upsert_daily_upload(session: AsyncSession, payload: UploadRequest) -> 
                 )
             )
 
-    values_upserted = await bulk_upsert_daily_values(session, value_rows)
+    values_upserted = await bulk_upsert_historical_values(session, value_rows)
     await session.commit()
 
     return UploadResponse(

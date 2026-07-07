@@ -12,7 +12,7 @@ multi-tenant API.
 
 - **Multi-tenancy**: schema-per-tenant on a single RDS PostgreSQL database — one shared
   `public` schema for `Tenant`/`User`/`RefreshToken`, one schema per tenant for
-  `Stock`/`Metric`/`DailyStockValue`, named from the signer's first name (e.g.
+  `Stock`/`Metric`/`HistoricalStockValue`, named from the signer's first name (e.g.
   `sundar_dss`; a collision becomes `sundar1_dss`). Tenant is resolved only from the
   signed JWT, never from client input. Tenant tables are created directly via
   SQLAlchemy at signup, in the same transaction as the schema creation — no migration
@@ -77,7 +77,7 @@ app/
 ├── db/               # engines, sessions, schema-per-tenant session factory
 ├── models/           # SQLAlchemy models (central + per-tenant)
 ├── schemas/          # Pydantic request/response models
-├── routers/          # auth, data
+├── routers/          # auth, historic (/historic/* - HistoricalStockValue), data (/data/* - catalogs)
 ├── services/         # business logic, tenant provisioning (CREATE SCHEMA + create_all, atomic), upsert orchestration
 ├── repositories/      # all SQL, bulk upsert/query logic
 └── exceptions.py      # domain exceptions + handlers

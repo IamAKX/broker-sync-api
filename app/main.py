@@ -11,7 +11,7 @@ from app.core.security import decode_access_token
 from app.db.central_session import central_engine
 from app.db.tenant_session import tenant_engine
 from app.exceptions import register_exception_handlers
-from app.routers import auth, data
+from app.routers import auth, data, historic
 
 configure_logging()
 logger = get_logger(__name__)
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(auth.router)
+    app.include_router(historic.router)
     app.include_router(data.router)
 
     @app.get("/health")

@@ -17,8 +17,9 @@ Interactive, always-current docs are also available at `/docs` (Swagger UI) and
 - **Base URL**: `http://localhost:8000` locally; `http://<ec2-public-ip>:8000`
   when deployed (see [`AWS_DEPLOYMENT.md`](AWS_DEPLOYMENT.md)).
 - **Content type**: `application/json` for all request and response bodies.
-- **Auth**: `Authorization: Bearer <access_token>` header on every `/data/*` endpoint
-  and none of the `/auth/*` endpoints. The token is issued by signup/login/refresh.
+- **Auth**: `Authorization: Bearer <access_token>` header on every `/historic/*` and
+  `/data/*` endpoint, and none of the `/auth/*` endpoints. The token is issued by
+  signup/login/refresh.
 - **Tenant scoping**: which tenant's schema a request reads/writes is derived **only**
   from the verified JWT (`schema_name` claim) — never from a header, query param, or
   request body. There is no way to specify a different tenant than the one the token
@@ -162,10 +163,11 @@ failure response shape is documented beyond standard request validation).
 
 ---
 
-## Data
+## Historic
 
-All `/data/*` endpoints require `Authorization: Bearer <access_token>` and operate on
-the caller's own tenant schema. Every endpoint below can additionally return:
+All `/historic/*` endpoints require `Authorization: Bearer <access_token>` and operate
+on the caller's own tenant schema, reading/writing the `HistoricalStockValue` table.
+Every endpoint below can additionally return:
 
 **Failure response `401 Unauthorized`** — missing, malformed, or expired bearer token
 ```json
@@ -175,7 +177,7 @@ the caller's own tenant schema. Every endpoint below can additionally return:
 }
 ```
 
-### `POST /data/daily-upload`
+### `POST /historic/daily-upload`
 
 Upserts one trading day's rows. New stocks and new metric names are auto-registered.
 Metrics **not present** in a re-upload for an existing `(trade_date, stock)` are left
@@ -231,11 +233,11 @@ untouched — this endpoint never deletes.
 }
 ```
 
-### `GET /data/snapshot?date=YYYY-MM-DD`
+### `GET /historic/snapshot?date=YYYY-MM-DD`
 
 Wide-pivoted grid for one date: all stocks × all metrics recorded that day. `date` is
 optional — omitting it returns the most recent `trade_date` present in the data
-(equivalent to `/data/latest`).
+(equivalent to `/historic/latest`).
 
 **Success response `200 OK`**
 ```json
@@ -292,9 +294,9 @@ consistent column set.
 }
 ```
 
-### `GET /data/latest`
+### `GET /historic/latest`
 
-Alias for `/data/snapshot` with no `date` — returns the most recent `trade_date`
+Alias for `/historic/snapshot` with no `date` — returns the most recent `trade_date`
 present in the tenant's data.
 
 **Success response `200 OK`**
@@ -325,7 +327,7 @@ present in the tenant's data.
 ```
 `trade_date` here is today's date (no upload exists to derive a "latest" from yet).
 
-### `GET /data/timeseries?symbol=&metric=&from=&to=`
+### `GET /historic/timeseries?symbol=&metric=&from=&to=`
 
 Single metric, single stock, across a date range — for charting/backtesting.
 
@@ -336,7 +338,7 @@ Single metric, single stock, across a date range — for charting/backtesting.
 | `from` | date | no — omit for no lower bound |
 | `to` | date | no — omit for no upper bound |
 
-**Example**: `GET /data/timeseries?symbol=RADICO&metric=PMC&from=2026-06-01&to=2026-06-27`
+**Example**: `GET /historic/timeseries?symbol=RADICO&metric=PMC&from=2026-06-01&to=2026-06-27`
 
 **Success response `200 OK`**
 ```json
@@ -375,10 +377,20 @@ An unknown `symbol` or `metric` returns `200` with an empty `points` array, not 
 }
 ```
 
+---
+
+## Data
+
+All `/data/*` endpoints require `Authorization: Bearer <access_token>` and operate on
+the caller's own tenant schema, listing the `Stock`/`Metric` catalog tables (not the
+`HistoricalStockValue` value table — see [Historic](#historic) above for that). Every
+endpoint below can additionally return the same `401 invalid_credentials` failure
+shown above for a missing/malformed/expired bearer token.
+
 ### `GET /data/metrics`
 
 Lists every metric registered for the caller's tenant (auto-registered by past uploads
-via `/data/daily-upload` — there's no separate "create a metric" endpoint).
+via `/historic/daily-upload` — there's no separate "create a metric" endpoint).
 
 **Success response `200 OK`**
 ```json
@@ -425,13 +437,13 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 
 | HTTP status | `code` | Returned by | When |
 |---|---|---|---|
-| 401 | `invalid_credentials` | `/auth/login`, `/auth/refresh`, all `/data/*` | Wrong email/password; missing/invalid/expired bearer token; expired/revoked/unknown refresh token |
+| 401 | `invalid_credentials` | `/auth/login`, `/auth/refresh`, all `/historic/*`, all `/data/*` | Wrong email/password; missing/invalid/expired bearer token; expired/revoked/unknown refresh token |
 | 404 | `tenant_not_found` | `/auth/login`, `/auth/refresh` | A user's tenant row is missing (data integrity issue, not a normal client error) |
 | 409 | `duplicate_email` | `/auth/signup` | Signup with an email that's already registered |
-| 422 | `invalid_trade_date` | `/data/daily-upload` | `trade_date` is in the future |
+| 422 | `invalid_trade_date` | `/historic/daily-upload` | `trade_date` is in the future |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |
 
-**Example domain error response** (`401` from a missing bearer token on any `/data/*` call):
+**Example domain error response** (`401` from a missing bearer token on any `/historic/*` or `/data/*` call):
 ```json
 {
   "detail": "Missing bearer token",

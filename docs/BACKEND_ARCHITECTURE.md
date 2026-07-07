@@ -4,9 +4,10 @@ Design for a new FastAPI backend that will eventually replace/extend `broker-fil
 local file-based storage with a multi-tenant API. This document is a design spec only —
 no implementation yet.
 
-Reference sample data: `Datascanner_20260627 (1).xls` — 217 stocks (rows) × 18 metric
-columns (`ScripName`, `PMHL_High`, `PMHL_Low`, `PMC`, `WOHLC_Open`, ...), one file per
-trading day. Column count and names are expected to change over time.
+Reference sample data: `HistoricalDataEOD_02July2026.xls` — 215 stocks (rows) × 60
+metric columns (`ScripName`, `Open`, `High`, `Low`, `Close`, `PMHL_High`, `PMHL_Low`,
+`PMC`, `WOHLC_Open`, ...), one file per trading day. Column count and names are
+expected to change over time.
 
 ---
 
@@ -35,11 +36,11 @@ trading day. Column count and names are expected to change over time.
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         FastAPI Application                         │
 │                                                                     │
-│   ┌──────────────┐   ┌──────────────────┐   ┌─────────────────────┐ │
-│   │   Routers    │   │     Services     │   │ Repositories (SQLA) │ │
-│   │ (auth, data) │ → │ (business logic) │ → │   (query building,  │ │
-│   │              │   │                  │   │    schema-scoped)   │ │
-│   └──────────────┘   └──────────────────┘   └─────────────────────┘ │
+│   ┌──────────────────┐ ┌──────────────────┐  ┌─────────────────────┐ │
+│   │     Routers      │ │     Services     │  │ Repositories (SQLA) │ │
+│   │(auth, historic,  │→│ (business logic) │ →│   (query building,  │ │
+│   │      data)       │ │                  │  │    schema-scoped)   │ │
+│   └──────────────────┘ └──────────────────┘  └─────────────────────┘ │
 │                                                                     │
 │         ↑                                                           │
 │   Middleware: JWT verification → user_id + tenant_id + role         │
@@ -51,20 +52,20 @@ trading day. Column count and names are expected to change over time.
        ┌──────────────────────────────────────────────────────┐
        │                  RDS PostgreSQL                       │
        │                                                      │
-       │ ┌──────────────────┐                                 │
-       │ │ public (central) │  Tenant, User, RefreshToken     │
-       │ ├──────────────────┤                                 │
-       │ │ sundar_dss       │  Stock, Metric, DailyStockValue │
-       │ ├──────────────────┤                                 │
-       │ │ ravi_dss         │  Stock, Metric, DailyStockValue │
-       │ └──────────────────┘                                 │
+       │ ┌──────────────────┐                                     │
+       │ │ public (central) │  Tenant, User, RefreshToken         │
+       │ ├──────────────────┤                                     │
+       │ │ sundar_dss       │  Stock, Metric, HistoricalStockValue │
+       │ ├──────────────────┤                                     │
+       │ │ ravi_dss         │  Stock, Metric, HistoricalStockValue │
+       │ └──────────────────┘                                     │
        └──────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 Multi-Tenancy Model: Schema-per-Tenant
 
 One RDS PostgreSQL instance, one database, one schema per tenant. Each schema contains
-an identical set of tables (`Stock`, `Metric`, `DailyStockValue`). A shared `public`
+an identical set of tables (`Stock`, `Metric`, `HistoricalStockValue`). A shared `public`
 schema holds cross-tenant tables (`Tenant`, `User`, `RefreshToken`).
 
 Rationale: cheaper than database-per-tenant (RDS bills per instance, not per database or
@@ -105,9 +106,9 @@ it's a backend/admin operation for now (see §4).
    on uniqueness, so a physical name collision advances to the next numeric suffix
    (`sundar1_dss`, `sundar2_dss`, ...) regardless of what the pre-check found.
 4. In **one transaction**: `CREATE SCHEMA [<name>]`, then create `Stock`/`Metric`/
-   `DailyStockValue` in it via SQLAlchemy `metadata.create_all()` (no Alembic migration
-   for tenant tables — see §3.5), then insert `Tenant` row (`schema_name` = the name
-   from step 3), then insert `User` row (`role='owner'`).
+   `HistoricalStockValue` in it via SQLAlchemy `metadata.create_all()` (no Alembic
+   migration for tenant tables — see §3.5), then insert `Tenant` row (`schema_name` =
+   the name from step 3), then insert `User` row (`role='owner'`).
 5. If **any** part of step 4 fails, the entire transaction rolls back — unlike a
    cross-database operation, `CREATE SCHEMA` participates in a normal PostgreSQL
    transaction, so there's no partial state to clean up and no compensating action
@@ -118,21 +119,21 @@ it's a backend/admin operation for now (see §4).
 This is synchronous because schema + table creation for three empty tables is
 sub-second; no job queue is warranted at current scale (tens of tenants).
 
-### 2.5 Data Flow — Daily Upload
+### 2.5 Data Flow — Historic Upload
 
 ```
 Client (desktop app / script)
       │  computes some fields locally, reads others from broker export
       ▼
-POST /data/daily-upload  { trade_date, rows: [{ symbol, metrics: {...} }] }
+POST /historic/daily-upload  { trade_date, rows: [{ symbol, metrics: {...} }] }
       │
       ▼
-DataUploadService
+HistoricalService
   1. Resolve tenant schema from JWT (handled by dependency)
   2. For each row: upsert Stock by symbol (create if unseen)
   3. For each metric key across all rows: upsert into Metric catalog
      (auto-register if name not seen before for this tenant)
-  4. Upsert DailyStockValue per (trade_date, stock_id, metric_id):
+  4. Upsert HistoricalStockValue per (trade_date, stock_id, metric_id):
      insert if absent, overwrite value if present — metrics NOT included
      in this payload for this date are left untouched (no deletion)
       │
@@ -143,20 +144,21 @@ RDS PostgreSQL — this tenant's own schema
 **Why a new metric name never needs a schema change**: `Metric` is a catalog table —
 each distinct metric name (`PMHL_High`, `VAH`, a brand-new column that shows up in
 tomorrow's payload, ...) becomes a new *row* here, auto-registered the first time it's
-seen, not a new SQL column on `DailyStockValue`. Values live in `DailyStockValue`'s
-generic `value_number`/`value_text` columns, keyed by `metric_id`. This
-entity-attribute-value (EAV) shape is *why* the upload endpoint can accept an
-arbitrarily different set of metric keys on any given day with zero DDL — see §3.2 for
-the table shapes and §3.2's scenario table for exactly what happens in each case.
+seen, not a new SQL column on `HistoricalStockValue`. Values live in
+`HistoricalStockValue`'s generic `value_number`/`value_text` columns, keyed by
+`metric_id`. This entity-attribute-value (EAV) shape is *why* the upload endpoint can
+accept an arbitrarily different set of metric keys on any given day with zero DDL —
+see §3.2 for the table shapes and §3.2's scenario table for exactly what happens in
+each case.
 
 ### 2.6 Data Flow — Reads
 
-- `GET /data/snapshot?date=YYYY-MM-DD` (date optional, defaults to latest) → full
+- `GET /historic/snapshot?date=YYYY-MM-DD` (date optional, defaults to latest) → full
   wide-pivoted grid for that day: all stocks × all metrics recorded that day.
-- `GET /data/timeseries?symbol=&metric=&from=&to=` → single metric, single stock, across
-  a date range — for charting/backtesting.
-- `GET /data/latest` → alias for snapshot with no date (most recent `trade_date`
-  present in `DailyStockValue`).
+- `GET /historic/timeseries?symbol=&metric=&from=&to=` → single metric, single stock,
+  across a date range — for charting/backtesting.
+- `GET /historic/latest` → alias for snapshot with no date (most recent `trade_date`
+  present in `HistoricalStockValue`).
 - Missing `(date, stock, metric)` combinations are returned as `null`, never a
   fabricated `0` — a metric that wasn't recorded that day is not the same as a metric
   whose value was zero.
@@ -209,7 +211,7 @@ Metric
   is_active     BOOLEAN       NOT NULL default true
   created_at    TIMESTAMP     NOT NULL default now()
 
-DailyStockValue
+HistoricalStockValue
   trade_date    DATE          NOT NULL
   stock_id      INT           NOT NULL FK -> Stock.id
   metric_id     INT           NOT NULL FK -> Metric.id
@@ -219,9 +221,9 @@ DailyStockValue
   PRIMARY KEY (trade_date, stock_id, metric_id)
 
 -- Supporting indexes:
-CREATE INDEX ix_dsv_stock_metric_date ON DailyStockValue (stock_id, metric_id, trade_date);
+CREATE INDEX ix_hsv_stock_metric_date ON HistoricalStockValue (stock_id, metric_id, trade_date);
   -- serves timeseries reads: WHERE stock_id = ? AND metric_id = ? ORDER BY trade_date
-CREATE INDEX ix_dsv_date ON DailyStockValue (trade_date);
+CREATE INDEX ix_hsv_date ON HistoricalStockValue (trade_date);
   -- serves snapshot reads: WHERE trade_date = ?
 ```
 
@@ -234,8 +236,8 @@ catalog without deleting its historical rows.
 
 | Scenario | What happens |
 |---|---|
-| New metric column appears in tomorrow's upload | Auto-inserted into `Metric`, values inserted into `DailyStockValue`. No DDL. |
-| A metric column is absent from tomorrow's upload | No new `DailyStockValue` rows for `(tomorrow, *, that_metric)`. Past dates for that metric are untouched. Reads for tomorrow return `null` for that metric. |
+| New metric column appears in tomorrow's upload | Auto-inserted into `Metric`, values inserted into `HistoricalStockValue`. No DDL. |
+| A metric column is absent from tomorrow's upload | No new `HistoricalStockValue` rows for `(tomorrow, *, that_metric)`. Past dates for that metric are untouched. Reads for tomorrow return `null` for that metric. |
 | Backdated upload for a date 3 weeks ago | Same upsert path, just with an older `trade_date`. No special-casing needed — "backdated" and "today" are the same code path. |
 | Re-upload correcting today's data | Upsert per `(trade_date, stock, metric)` — overwrites only the metrics present in the new payload; other metrics for that date already stored are left alone. |
 
@@ -249,13 +251,17 @@ catalog without deleting its historical rows.
 | POST | `/auth/refresh` | Exchange valid refresh token for new access token |
 | POST | `/auth/logout` | Revoke refresh token |
 
-**Data**
+**Historic** (reads/writes `HistoricalStockValue`)
 | Method | Path | Description |
 |---|---|---|
-| POST | `/data/daily-upload` | Upsert one trading day's rows (see payload below) |
-| GET | `/data/snapshot?date=` | Wide grid for one date (defaults to latest) |
-| GET | `/data/latest` | Alias for snapshot with no date |
-| GET | `/data/timeseries?symbol=&metric=&from=&to=` | Single metric/stock across a date range |
+| POST | `/historic/daily-upload` | Upsert one trading day's rows (see payload below) |
+| GET | `/historic/snapshot?date=` | Wide grid for one date (defaults to latest) |
+| GET | `/historic/latest` | Alias for snapshot with no date |
+| GET | `/historic/timeseries?symbol=&metric=&from=&to=` | Single metric/stock across a date range |
+
+**Data** (lists the `Stock`/`Metric` catalogs)
+| Method | Path | Description |
+|---|---|---|
 | GET | `/data/metrics` | List the tenant's registered metrics (name, data_type, is_active) |
 | GET | `/data/stocks` | List the tenant's registered stocks |
 
@@ -316,10 +322,10 @@ actual recorded value of `0`.
 - **SQLAlchemy 2.0** (async) with `asyncpg`/`psycopg` driver for PostgreSQL.
 - **Alembic** — **one** migration chain, for `public` (central tables: `Tenant`, `User`,
   `RefreshToken`). Tenant schemas have **no migration chain**: their three tables
-  (`Stock`/`Metric`/`DailyStockValue`) are created once, at signup, via SQLAlchemy's
-  `metadata.create_all()` directly against the ORM models (schema-bound via
-  `schema_translate_map`) — there's nothing to version because the table *shape* never
-  changes; only metric *rows* change (§2.5).
+  (`Stock`/`Metric`/`HistoricalStockValue`) are created once, at signup, via
+  SQLAlchemy's `metadata.create_all()` directly against the ORM models (schema-bound
+  via `schema_translate_map`) — there's nothing to version because the table *shape*
+  never changes; only metric *rows* change (§2.5).
 - **pydantic-settings** — config via env vars (connection string, JWT secret, CORS).
 - **passlib[bcrypt]** — password hashing.
 - **structlog** (or stdlib logging + JSON formatter) — every log line carries
@@ -342,21 +348,23 @@ app/
 │   └── base.py                  # declarative base(s)
 ├── models/
 │   ├── central.py                # Tenant, User, RefreshToken
-│   └── tenant.py                 # Stock, Metric, DailyStockValue
+│   └── tenant.py                 # Stock, Metric, HistoricalStockValue
 ├── schemas/                      # Pydantic request/response models
 │   ├── auth.py
-│   └── data.py
+│   ├── historic.py                # upload/snapshot/timeseries schemas
+│   └── data.py                    # metric/stock catalog list schemas
 ├── routers/
 │   ├── auth.py
-│   └── data.py
+│   ├── historic.py                # /historic/* — reads/writes HistoricalStockValue
+│   └── data.py                    # /data/* — lists Stock/Metric catalogs
 ├── services/
 │   ├── auth_service.py
 │   ├── provisioning_service.py  # CREATE SCHEMA + create_all() for new tenant, atomic
-│   └── data_service.py          # upsert logic, pivot logic for snapshot reads
+│   └── historical_service.py    # upsert logic, pivot logic for snapshot reads
 ├── repositories/
 │   ├── stock_repo.py
 │   ├── metric_repo.py
-│   └── daily_value_repo.py
+│   └── historical_value_repo.py
 └── exceptions.py
 migrations/
 └── central/                     # Alembic chain for public only

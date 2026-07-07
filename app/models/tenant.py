@@ -35,8 +35,8 @@ class Metric(TenantBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
-class DailyStockValue(TenantBase):
-    __tablename__ = "DailyStockValue"
+class HistoricalStockValue(TenantBase):
+    __tablename__ = "HistoricalStockValue"
 
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
     stock_id: Mapped[int] = mapped_column(Integer, ForeignKey("Stock.id"), primary_key=True)
@@ -50,7 +50,7 @@ class DailyStockValue(TenantBase):
 
     __table_args__ = (
         # Serves timeseries reads: WHERE stock_id = ? AND metric_id = ? ORDER BY trade_date
-        Index("ix_dsv_stock_metric_date", "stock_id", "metric_id", "trade_date"),
+        Index("ix_hsv_stock_metric_date", "stock_id", "metric_id", "trade_date"),
         # Serves snapshot reads: WHERE trade_date = ?
-        Index("ix_dsv_date", "trade_date"),
+        Index("ix_hsv_date", "trade_date"),
     )

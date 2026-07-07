@@ -223,12 +223,12 @@ curl -s -X POST "$BASE_URL/auth/signup" \
 
 ACCESS_TOKEN=$(python3 -c "import json;print(json.load(open('/tmp/signup.json'))['access_token'])")
 
-curl -s -X POST "$BASE_URL/data/daily-upload" \
+curl -s -X POST "$BASE_URL/historic/daily-upload" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"trade_date":"2026-07-01","rows":[{"symbol":"TEST","metrics":{"PMC":100.5}}]}'
 
-curl -s "$BASE_URL/data/latest" -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -s "$BASE_URL/historic/latest" -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
 If the last command returns the uploaded row with `"PMC": 100.5`, the deployment is
@@ -308,7 +308,7 @@ There is **one** Alembic chain, for `public`:
 | `alembic_central.ini` | `public` schema (`Tenant`, `User`, `RefreshToken`) | Manually, once per deploy — see §6 above |
 
 **Tenant schemas have no migration chain.** Their tables (`Stock`, `Metric`,
-`DailyStockValue`) are created once, directly via SQLAlchemy's `metadata.create_all()`
+`HistoricalStockValue`) are created once, directly via SQLAlchemy's `metadata.create_all()`
 (schema-bound via `schema_translate_map`), when a tenant schema is provisioned at
 signup — see `BACKEND_ARCHITECTURE.md` §2.4/§3.2.
 
