@@ -45,10 +45,10 @@ export VPC_ID=$(aws ec2 describe-vpcs --filters Name=is-default,Values=true --qu
 export DB_INSTANCE_ID="brokersync-dev-db"
 export DB_NAME="brokersync"
 export DB_USER="brokersync_admin"
-export DB_PASSWORD="<choose-a-strong-password>"
+export DB_PASSWORD="BrokerSync-2024-Secure_DevPass123"
 export EC2_KEY_NAME="brokersync-dev-key"
 export EC2_INSTANCE_NAME="brokersync-dev-api"
-export JWT_SECRET="<random 32+ byte hex string>"
+export JWT_SECRET="62726f6b657273796e632d6465762d7365637265742d6b65793332"
 ```
 
 ## 2. Security Groups
@@ -92,7 +92,7 @@ aws rds create-db-instance \
   --vpc-security-group-ids "$RDS_SG_ID" \
   --no-publicly-accessible \
   --no-multi-az \
-  --backup-retention-period 7
+  --backup-retention-period 1
 
 # Wait for it to become available (a few minutes)
 aws rds wait db-instance-available --db-instance-identifier "$DB_INSTANCE_ID"
@@ -145,20 +145,22 @@ ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP"
 ```
 
 On the instance:
+
 ```bash
 sudo dnf install -y python3.12 python3.12-pip git
-git clone <your-repo-url> /opt/brokersync
-cd /opt/brokersync
+git clone <your-repo-url> /home/ec2-user/brokersync
+cd /home/ec2-user/brokersync
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create `/opt/brokersync/.env` (see [§1 config reference](#1-required-configuration-values)
+Create `/home/ec2-user/brokersync/.env` (see [§1 config reference](#1-required-configuration-values)
 below) with the values from your local shell (substitute `$RDS_ENDPOINT`, `$DB_USER`,
 `$DB_PASSWORD`, `$DB_NAME`, `$JWT_SECRET` from §1/§3 above):
+
 ```bash
-cat > /opt/brokersync/.env <<EOF
+cat > /home/ec2-user/brokersync/.env <<EOF
 ENVIRONMENT=production
 SQL_SERVER=$RDS_ENDPOINT
 SQL_DATABASE=$DB_NAME
@@ -172,6 +174,7 @@ EOF
 ```
 
 Create the systemd service:
+
 ```bash
 sudo tee /etc/systemd/system/brokersync.service <<'EOF'
 [Unit]
@@ -181,9 +184,9 @@ After=network.target
 [Service]
 Type=simple
 User=ec2-user
-WorkingDirectory=/opt/brokersync
-EnvironmentFile=/opt/brokersync/.env
-ExecStart=/opt/brokersync/.venv/bin/bash /opt/brokersync/startup.sh
+WorkingDirectory=/home/ec2-user/brokersync
+EnvironmentFile=/home/ec2-user/brokersync/.env
+ExecStart=/home/ec2-user/brokersync/.venv/bin/bash /home/ec2-user/brokersync/startup.sh
 Restart=on-failure
 
 [Install]
@@ -201,7 +204,7 @@ from the EC2 instance (it can already reach RDS via the security-group rule) or 
 your local machine if you additionally allow your IP on the RDS security group:
 
 ```bash
-# From the EC2 instance, inside /opt/brokersync with the venv active:
+# From the EC2 instance, inside /home/ec2-user/brokersync with the venv active:
 alembic -c alembic_central.ini upgrade head
 ```
 
@@ -280,15 +283,19 @@ Your IP changes across networks/reconnects — re-run the `authorize` step with 
 
 Stop (don't terminate) the EC2 instance to pause compute billing while keeping the EIP,
 disk, and config intact:
+
 ```bash
 aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 ```
+
 Restart later with:
+
 ```bash
 aws ec2 start-instances --instance-ids "$INSTANCE_ID"
 ```
 
 To fully tear down everything (end of the project, not just a pause between sessions):
+
 ```bash
 aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
 aws ec2 release-address --allocation-id "$ALLOC_ID"
@@ -306,26 +313,26 @@ precious infrastructure at this phase.
 
 All settings are read by [`app/core/config.py`](../app/core/config.py) via
 `pydantic-settings`. Same variable names are used locally (`.env`) and on the EC2
-instance — only *where* the file lives differs.
+instance — only _where_ the file lives differs.
 
-| Variable | Example | Description |
-|---|---|---|
-| `ENVIRONMENT` | `development` / `production` | Toggles debug behavior (e.g. SQL echo, docs exposure) |
-| `SQL_SERVER` | `brokersync-dev-db.xxxxx.ap-south-1.rds.amazonaws.com` | RDS instance endpoint hostname |
-| `SQL_DATABASE` | `brokersync` | Database name — holds `public` and every tenant schema |
-| `SQL_USER` | `brokersync_admin` | RDS master username |
-| `SQL_PASSWORD` | `<secret>` | RDS master password |
-| `JWT_SECRET` | `<random 32+ byte string>` | HS256 signing secret for access tokens |
-| `JWT_ACCESS_EXPIRY_MINUTES` | `30` | Access token lifetime, per `BACKEND_ARCHITECTURE.md` §3.4 |
-| `JWT_REFRESH_EXPIRY_DAYS` | `7` | Refresh token lifetime |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
+| Variable                    | Example                                                | Description                                               |
+| --------------------------- | ------------------------------------------------------ | --------------------------------------------------------- |
+| `ENVIRONMENT`               | `development` / `production`                           | Toggles debug behavior (e.g. SQL echo, docs exposure)     |
+| `SQL_SERVER`                | `brokersync-dev-db.xxxxx.ap-south-1.rds.amazonaws.com` | RDS instance endpoint hostname                            |
+| `SQL_DATABASE`              | `brokersync`                                           | Database name — holds `public` and every tenant schema    |
+| `SQL_USER`                  | `brokersync_admin`                                     | RDS master username                                       |
+| `SQL_PASSWORD`              | `<secret>`                                             | RDS master password                                       |
+| `JWT_SECRET`                | `<random 32+ byte string>`                             | HS256 signing secret for access tokens                    |
+| `JWT_ACCESS_EXPIRY_MINUTES` | `30`                                                   | Access token lifetime, per `BACKEND_ARCHITECTURE.md` §3.4 |
+| `JWT_REFRESH_EXPIRY_DAYS`   | `7`                                                    | Refresh token lifetime                                    |
+| `CORS_ORIGINS`              | `http://localhost:5173`                                | Comma-separated allowed origins                           |
 
 ## 2. Where Each Value Lives
 
-| Location | Used for | Notes |
-|---|---|---|
-| `.env` (gitignored, copy from `.env.example`) | Local development | Loaded automatically by `pydantic-settings`; never committed |
-| `/opt/brokersync/.env` on the EC2 instance | Deployed app | Loaded into the systemd service via `EnvironmentFile=` — plain file, not encrypted at rest (dev-phase only; upgrade to Secrets Manager for production, see `AWS_ARCHITECTURE.md` §1) |
+| Location                                             | Used for          | Notes                                                                                                                                                                                |
+| ---------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.env` (gitignored, copy from `.env.example`)        | Local development | Loaded automatically by `pydantic-settings`; never committed                                                                                                                         |
+| `/home/ec2-user/brokersync/.env` on the EC2 instance | Deployed app      | Loaded into the systemd service via `EnvironmentFile=` — plain file, not encrypted at rest (dev-phase only; upgrade to Secrets Manager for production, see `AWS_ARCHITECTURE.md` §1) |
 
 ## 3. Connection Details
 
@@ -333,6 +340,7 @@ No ODBC driver or client-side install is needed — `asyncpg`/`psycopg[binary]` 
 pure-Python/bundled-binary PostgreSQL drivers.
 
 Connection string format, built at runtime in `app/core/config.py`:
+
 ```
 postgresql+asyncpg://<SQL_USER>:<SQL_PASSWORD>@<SQL_SERVER>:5432/<SQL_DATABASE>
 ```
@@ -345,8 +353,8 @@ happens via `schema_translate_map` at the session level
 
 There is **one** Alembic chain, for `public`:
 
-| Config | Targets | When it runs |
-|---|---|---|
+| Config                | Targets                                            | When it runs                             |
+| --------------------- | -------------------------------------------------- | ---------------------------------------- |
 | `alembic_central.ini` | `public` schema (`Tenant`, `User`, `RefreshToken`) | Manually, once per deploy — see §6 above |
 
 **Tenant schemas have no migration chain.** Their tables (`Stock`, `Metric`,
