@@ -3,6 +3,7 @@
 .remember/
 .superpowers/
 docs/superpowers/
+graphify-out/
 
 # Python
 __pycache__/
