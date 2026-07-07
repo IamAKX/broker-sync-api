@@ -186,8 +186,11 @@ Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user/brokersync
 EnvironmentFile=/home/ec2-user/brokersync/.env
-ExecStart=/home/ec2-user/brokersync/.venv/bin/bash /home/ec2-user/brokersync/startup.sh
+ExecStart=/bin/bash -c 'source /home/ec2-user/brokersync/.venv/bin/activate && exec /home/ec2-user/brokersync/.venv/bin/python -m gunicorn --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 app.main:app'
 Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
