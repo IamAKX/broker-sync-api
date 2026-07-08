@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import TenantBase
 from app.exceptions import SchemaProvisioningError
+from app.models import tenant as tenant_models  # noqa: F401
 from app.models.central import Tenant
 
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,60}$")

@@ -1,6 +1,7 @@
 from datetime import date
 
-from sqlalchemy import text
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import HistoricalStockValue, Metric, Stock
@@ -46,27 +47,27 @@ async def bulk_upsert_historical_values(session: AsyncSession, rows: list[Histor
 
 
 async def _upsert_batch(session: AsyncSession, batch: list[HistoricalValueRow]) -> int:
-    values_clauses = []
-    params: dict[str, object] = {}
-    for i, row in enumerate(batch):
-        values_clauses.append(f"(:trade_date_{i}, :stock_id_{i}, :metric_id_{i}, :value_number_{i}, :value_text_{i})")
-        params[f"trade_date_{i}"] = row.trade_date
-        params[f"stock_id_{i}"] = row.stock_id
-        params[f"metric_id_{i}"] = row.metric_id
-        params[f"value_number_{i}"] = row.value_number
-        params[f"value_text_{i}"] = row.value_text
+    rows_data = [
+        {
+            "trade_date": row.trade_date,
+            "stock_id": row.stock_id,
+            "metric_id": row.metric_id,
+            "value_number": row.value_number,
+            "value_text": row.value_text,
+        }
+        for row in batch
+    ]
 
-    hsv_table = HistoricalStockValue.__table__.name
-
-    sql = f"""
-        INSERT INTO "{hsv_table}" (trade_date, stock_id, metric_id, value_number, value_text)
-        VALUES {", ".join(values_clauses)}
-        ON CONFLICT (trade_date, stock_id, metric_id) DO UPDATE SET
-            value_number = EXCLUDED.value_number,
-            value_text = EXCLUDED.value_text,
-            updated_at = now();
-    """
-    result = await session.execute(text(sql), params)
+    insert_stmt = pg_insert(HistoricalStockValue).values(rows_data)
+    insert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=[HistoricalStockValue.trade_date, HistoricalStockValue.stock_id, HistoricalStockValue.metric_id],
+        set_={
+            "value_number": insert_stmt.excluded.value_number,
+            "value_text": insert_stmt.excluded.value_text,
+            "updated_at": func.now(),
+        },
+    )
+    result = await session.execute(insert_stmt)
     return result.rowcount or 0
 
 
@@ -74,22 +75,25 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     """Rows for one date, joined to stock/metric names — feeds the wide-pivot
     snapshot response. Uses the ix_hsv_date index.
     """
-    sql = text(
-        f"""
-        SELECT s.symbol, s.display_name, m.name AS metric_name, hsv.value_number, hsv.value_text
-        FROM "{HistoricalStockValue.__table__.name}" hsv
-        JOIN "{Stock.__table__.name}" s ON s.id = hsv.stock_id
-        JOIN "{Metric.__table__.name}" m ON m.id = hsv.metric_id
-        WHERE hsv.trade_date = :trade_date
-        """
+    stmt = (
+        select(
+            Stock.symbol,
+            Stock.display_name,
+            Metric.name.label("metric_name"),
+            HistoricalStockValue.value_number,
+            HistoricalStockValue.value_text,
+        )
+        .join(HistoricalStockValue.stock)
+        .join(HistoricalStockValue.metric)
+        .where(HistoricalStockValue.trade_date == trade_date)
     )
-    result = await session.execute(sql, {"trade_date": trade_date})
+    result = await session.execute(stmt)
     return result.mappings().all()
 
 
 async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
-    sql = text(f'SELECT MAX(trade_date) AS latest FROM "{HistoricalStockValue.__table__.name}"')
-    result = await session.execute(sql)
+    stmt = select(func.max(HistoricalStockValue.trade_date))
+    result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
@@ -99,14 +103,13 @@ async def fetch_trade_dates_in_range(
     """Distinct trade_dates with any recorded value in [date_from, date_to] —
     uses the ix_hsv_date index.
     """
-    sql = text(
-        f"""
-        SELECT DISTINCT trade_date
-        FROM "{HistoricalStockValue.__table__.name}"
-        WHERE trade_date >= :date_from AND trade_date <= :date_to
-        """
+    stmt = (
+        select(HistoricalStockValue.trade_date)
+        .distinct()
+        .where(HistoricalStockValue.trade_date >= date_from)
+        .where(HistoricalStockValue.trade_date <= date_to)
     )
-    result = await session.execute(sql, {"date_from": date_from, "date_to": date_to})
+    result = await session.execute(stmt)
     return set(result.scalars().all())
 
 
@@ -120,19 +123,17 @@ async def fetch_timeseries_rows(
     """Uses ix_hsv_stock_metric_date (stock_id, metric_id, trade_date) — the index is
     ordered to serve exactly this WHERE + ORDER BY shape without a sort operator.
     """
-    sql = f"""
-        SELECT trade_date, value_number, value_text
-        FROM "{HistoricalStockValue.__table__.name}"
-        WHERE stock_id = :stock_id AND metric_id = :metric_id
-    """
-    params: dict[str, object] = {"stock_id": stock_id, "metric_id": metric_id}
-    if date_from is not None:
-        sql += " AND trade_date >= :date_from"
-        params["date_from"] = date_from
-    if date_to is not None:
-        sql += " AND trade_date <= :date_to"
-        params["date_to"] = date_to
-    sql += " ORDER BY trade_date"
+    stmt = select(
+        HistoricalStockValue.trade_date,
+        HistoricalStockValue.value_number,
+        HistoricalStockValue.value_text,
+    ).where(HistoricalStockValue.stock_id == stock_id, HistoricalStockValue.metric_id == metric_id)
 
-    result = await session.execute(text(sql), params)
+    if date_from is not None:
+        stmt = stmt.where(HistoricalStockValue.trade_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(HistoricalStockValue.trade_date <= date_to)
+    stmt = stmt.order_by(HistoricalStockValue.trade_date)
+
+    result = await session.execute(stmt)
     return result.mappings().all()
