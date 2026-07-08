@@ -15,8 +15,11 @@ git fetch --all --prune
 git checkout "$BRANCH"
 git pull origin "$BRANCH"
 
-echo "[deploy] Installing Python dependencies..."
+echo "[deploy] Rebuilding virtualenv..."
+rm -rf .venv
+python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
 echo "[deploy] Restarting service..."

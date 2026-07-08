@@ -66,7 +66,16 @@ def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> 
 
 
 def ensure_tenant_schema_tables_sync(connection: Connection, schema_name: str) -> None:
-    """Create the tenant schema and its tables if they do not already exist."""
+    """Create the tenant schema and its tables if they do not already exist.
+
+    Unlike `_create_schema_and_tables_sync` (called on the *central* connection
+    during signup, whose baseline schema_translate_map is None), this runs on the
+    caller's connection every request via `get_tenant_db` — that connection's
+    baseline map is already `{None: schema_name}` from `build_tenant_sessionmaker`.
+    Must restore the original map, not hardcode None, or every later query on this
+    connection this request loses tenant scoping.
+    """
+    original_map = connection.get_execution_options().get("schema_translate_map")
     connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
     scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
     try:
@@ -74,7 +83,7 @@ def ensure_tenant_schema_tables_sync(connection: Connection, schema_name: str) -
     except ProgrammingError as exc:
         if "already exists" not in str(exc).lower():
             raise
-    connection.execution_options(schema_translate_map=None)
+    connection.execution_options(schema_translate_map=original_map)
 
 
 async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:
