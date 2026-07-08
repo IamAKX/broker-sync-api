@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/ec2-user/broker-sync-api}"
 BRANCH="${BRANCH:-main}"
+PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 
 if [[ ! -d "$REPO_DIR" ]]; then
   echo "[deploy] Repository directory not found: $REPO_DIR"
@@ -17,7 +18,7 @@ git pull origin "$BRANCH"
 
 echo "[deploy] Rebuilding virtualenv..."
 rm -rf .venv
-python3 -m venv .venv
+"$PYTHON_BIN" -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
