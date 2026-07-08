@@ -1,18 +1,21 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import InvalidTradeDateError
+from app.exceptions import InvalidDateRangeError, InvalidTradeDateError
 from app.repositories.historical_value_repo import (
     HistoricalValueRow,
     bulk_upsert_historical_values,
     fetch_latest_trade_date,
     fetch_snapshot_rows,
     fetch_timeseries_rows,
+    fetch_trade_dates_in_range,
 )
 from app.repositories.metric_repo import bulk_get_or_create_metrics, get_metric_by_name
 from app.repositories.stock_repo import bulk_get_or_create_stocks, get_stock_by_symbol
 from app.schemas.historic import (
+    DateAvailability,
+    DateAvailabilityResponse,
     SnapshotResponse,
     StockSnapshot,
     TimeseriesPoint,
@@ -22,6 +25,7 @@ from app.schemas.historic import (
 )
 
 _MAX_TRADE_DATE_FUTURE_DAYS = 1
+_MAX_DATE_RANGE_DAYS = 366
 
 
 def _infer_data_type(value: float | str | None) -> str:
@@ -105,3 +109,22 @@ async def get_timeseries(
         for row in rows
     ]
     return TimeseriesResponse(symbol=symbol, metric=metric, points=points)
+
+
+async def get_date_availability(
+    session: AsyncSession, date_from: date, date_to: date
+) -> DateAvailabilityResponse:
+    if date_from > date_to:
+        raise InvalidDateRangeError("date_from must be on or before date_to")
+    if (date_to - date_from).days > _MAX_DATE_RANGE_DAYS:
+        raise InvalidDateRangeError(f"date range cannot exceed {_MAX_DATE_RANGE_DAYS} days")
+
+    present_dates = await fetch_trade_dates_in_range(session, date_from, date_to)
+
+    dates = []
+    current = date_from
+    while current <= date_to:
+        dates.append(DateAvailability(trade_date=current, has_data=current in present_dates))
+        current += timedelta(days=1)
+
+    return DateAvailabilityResponse(date_from=date_from, date_to=date_to, dates=dates)

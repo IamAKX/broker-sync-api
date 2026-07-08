@@ -43,3 +43,14 @@ class TimeseriesResponse(BaseModel):
     symbol: str
     metric: str
     points: list[TimeseriesPoint]
+
+
+class DateAvailability(BaseModel):
+    trade_date: date
+    has_data: bool
+
+
+class DateAvailabilityResponse(BaseModel):
+    date_from: date
+    date_to: date
+    dates: list[DateAvailability]

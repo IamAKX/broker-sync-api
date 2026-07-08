@@ -93,6 +93,23 @@ async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
     return result.scalar_one_or_none()
 
 
+async def fetch_trade_dates_in_range(
+    session: AsyncSession, date_from: date, date_to: date
+) -> set[date]:
+    """Distinct trade_dates with any recorded value in [date_from, date_to] —
+    uses the ix_hsv_date index.
+    """
+    sql = text(
+        f"""
+        SELECT DISTINCT trade_date
+        FROM "{HistoricalStockValue.__table__.name}"
+        WHERE trade_date >= :date_from AND trade_date <= :date_to
+        """
+    )
+    result = await session.execute(sql, {"date_from": date_from, "date_to": date_to})
+    return set(result.scalars().all())
+
+
 async def fetch_timeseries_rows(
     session: AsyncSession,
     stock_id: int,

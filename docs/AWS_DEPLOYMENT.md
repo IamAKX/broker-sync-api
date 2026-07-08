@@ -310,6 +310,73 @@ aws ec2 delete-security-group --group-id "$RDS_SG_ID"
 Re-running §2-§7 recreates the environment from scratch — nothing here is meant to be
 precious infrastructure at this phase.
 
+## 10. Redeploy Changes
+
+Pushed new code to the repo and need it live on EC2:
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP"
+```
+
+On the instance:
+
+```bash
+cd /home/ec2-user/brokersync
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt   # only needed if dependencies changed
+
+# only if the central migration chain gained new revisions:
+alembic -c alembic_central.ini upgrade head
+
+sudo systemctl restart brokersync
+sudo systemctl status brokersync   # confirm "active (running)"
+```
+
+One-liner from your local machine (skips the interactive shell):
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP" \
+  'cd /home/ec2-user/brokersync && git pull && source .venv/bin/activate && pip install -r requirements.txt && sudo systemctl restart brokersync'
+```
+
+Then smoke test with the `curl "$BASE_URL/health"` check from §7 to confirm the
+restarted service is actually up before walking away.
+
+## 11. Check Server Logs
+
+The systemd service (§5) logs to the journal (`StandardOutput=journal` /
+`StandardError=journal`) — no separate log file to find.
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP"
+
+# tail live logs (Ctrl+C to stop)
+sudo journalctl -u brokersync -f
+
+# last 200 lines
+sudo journalctl -u brokersync -n 200
+
+# logs since a given time
+sudo journalctl -u brokersync --since "1 hour ago"
+
+# only errors/warnings
+sudo journalctl -u brokersync -p err
+```
+
+One-liner from your local machine:
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP" 'sudo journalctl -u brokersync -n 200 --no-pager'
+```
+
+Also check the service is actually running (crashed/failed units show here, not just
+in the log tail):
+
+```bash
+ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP" 'sudo systemctl status brokersync'
+```
+
 ---
 
 ## 1. Required Configuration Values

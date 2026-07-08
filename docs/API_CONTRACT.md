@@ -377,6 +377,57 @@ An unknown `symbol` or `metric` returns `200` with an empty `points` array, not 
 }
 ```
 
+### `GET /historic/availability?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+For every date in `[from, to]`, tells whether **any** metric/stock data was uploaded
+for that `trade_date` — one `true`/`false` per calendar day, useful for a date-range
+picker that greys out days with no data.
+
+| Query param | Type | Required |
+|---|---|---|
+| `from` | date | yes |
+| `to` | date | yes — must be on or after `from`, and within 366 days of `from` |
+
+**Example**: `GET /historic/availability?from=2026-06-25&to=2026-06-28`
+
+**Success response `200 OK`**
+```json
+{
+  "date_from": "2026-06-25",
+  "date_to": "2026-06-28",
+  "dates": [
+    { "trade_date": "2026-06-25", "has_data": false },
+    { "trade_date": "2026-06-26", "has_data": true },
+    { "trade_date": "2026-06-27", "has_data": true },
+    { "trade_date": "2026-06-28", "has_data": false }
+  ]
+}
+```
+`dates` always contains one entry per calendar day in the range, in order, regardless
+of whether any data exists — an empty tenant returns `has_data: false` for every day
+rather than an empty list.
+
+**Failure response `422 Unprocessable Entity`** — `from` is after `to`, or range exceeds 366 days
+```json
+{
+  "detail": "date_from must be on or before date_to",
+  "code": "invalid_date_range"
+}
+```
+
+**Failure response `422 Unprocessable Entity`** — missing required query param
+```json
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["query", "to"],
+      "msg": "Field required"
+    }
+  ]
+}
+```
+
 ---
 
 ## Data
@@ -441,6 +492,7 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 | 404 | `tenant_not_found` | `/auth/login`, `/auth/refresh` | A user's tenant row is missing (data integrity issue, not a normal client error) |
 | 409 | `duplicate_email` | `/auth/signup` | Signup with an email that's already registered |
 | 422 | `invalid_trade_date` | `/historic/daily-upload` | `trade_date` is in the future |
+| 422 | `invalid_date_range` | `/historic/availability` | `from` is after `to`, or the range exceeds 366 days |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |
 
 **Example domain error response** (`401` from a missing bearer token on any `/historic/*` or `/data/*` call):

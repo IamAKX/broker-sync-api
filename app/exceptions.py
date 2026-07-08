@@ -36,6 +36,11 @@ class InvalidTradeDateError(AppError):
     code = "invalid_trade_date"
 
 
+class InvalidDateRangeError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "invalid_date_range"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

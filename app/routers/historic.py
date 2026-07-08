@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.deps import get_tenant_db
 from app.schemas.historic import (
+    DateAvailabilityResponse,
     SnapshotResponse,
     TimeseriesResponse,
     UploadRequest,
@@ -44,3 +45,12 @@ async def timeseries(
     session: AsyncSession = Depends(get_tenant_db),
 ) -> TimeseriesResponse:
     return await historical_service.get_timeseries(session, symbol, metric, date_from, date_to)
+
+
+@router.get("/availability", response_model=DateAvailabilityResponse)
+async def availability(
+    date_from: date = Query(alias="from"),
+    date_to: date = Query(alias="to"),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> DateAvailabilityResponse:
+    return await historical_service.get_date_availability(session, date_from, date_to)
