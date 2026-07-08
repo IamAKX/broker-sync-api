@@ -148,19 +148,19 @@ On the instance:
 
 ```bash
 sudo dnf install -y python3.12 python3.12-pip git
-git clone <your-repo-url> /home/ec2-user/brokersync
-cd /home/ec2-user/brokersync
+git clone <your-repo-url> /home/ec2-user/broker-sync-api
+cd /home/ec2-user/broker-sync-api
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create `/home/ec2-user/brokersync/.env` (see [§1 config reference](#1-required-configuration-values)
+Create `/home/ec2-user/broker-sync-api/.env` (see [§1 config reference](#1-required-configuration-values)
 below) with the values from your local shell (substitute `$RDS_ENDPOINT`, `$DB_USER`,
 `$DB_PASSWORD`, `$DB_NAME`, `$JWT_SECRET` from §1/§3 above):
 
 ```bash
-cat > /home/ec2-user/brokersync/.env <<EOF
+cat > /home/ec2-user/broker-sync-api/.env <<EOF
 ENVIRONMENT=production
 SQL_SERVER=$RDS_ENDPOINT
 SQL_DATABASE=$DB_NAME
@@ -184,9 +184,9 @@ After=network.target
 [Service]
 Type=simple
 User=ec2-user
-WorkingDirectory=/home/ec2-user/brokersync
-EnvironmentFile=/home/ec2-user/brokersync/.env
-ExecStart=/bin/bash -c 'source /home/ec2-user/brokersync/.venv/bin/activate && exec /home/ec2-user/brokersync/.venv/bin/python -m gunicorn --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 app.main:app'
+WorkingDirectory=/home/ec2-user/broker-sync-api
+EnvironmentFile=/home/ec2-user/broker-sync-api/.env
+ExecStart=/bin/bash -c 'source /home/ec2-user/broker-sync-api/.venv/bin/activate && exec /home/ec2-user/broker-sync-api/.venv/bin/python -m gunicorn --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 app.main:app'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -207,7 +207,7 @@ from the EC2 instance (it can already reach RDS via the security-group rule) or 
 your local machine if you additionally allow your IP on the RDS security group:
 
 ```bash
-# From the EC2 instance, inside /home/ec2-user/brokersync with the venv active:
+# From the EC2 instance, inside /home/ec2-user/broker-sync-api with the venv active:
 alembic -c alembic_central.ini upgrade head
 ```
 
@@ -321,7 +321,7 @@ ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP"
 On the instance:
 
 ```bash
-cd /home/ec2-user/brokersync
+cd /home/ec2-user/broker-sync-api
 git pull
 source .venv/bin/activate
 pip install -r requirements.txt   # only needed if dependencies changed
@@ -337,7 +337,7 @@ One-liner from your local machine (skips the interactive shell):
 
 ```bash
 ssh -i "${EC2_KEY_NAME}.pem" ec2-user@"$EC2_PUBLIC_IP" \
-  'cd /home/ec2-user/brokersync && git pull && source .venv/bin/activate && pip install -r requirements.txt && sudo systemctl restart brokersync'
+  'cd /home/ec2-user/broker-sync-api && git pull && source .venv/bin/activate && pip install -r requirements.txt && sudo systemctl restart brokersync'
 ```
 
 Then smoke test with the `curl "$BASE_URL/health"` check from §7 to confirm the
@@ -399,10 +399,10 @@ instance — only _where_ the file lives differs.
 
 ## 2. Where Each Value Lives
 
-| Location                                             | Used for          | Notes                                                                                                                                                                                |
-| ---------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.env` (gitignored, copy from `.env.example`)        | Local development | Loaded automatically by `pydantic-settings`; never committed                                                                                                                         |
-| `/home/ec2-user/brokersync/.env` on the EC2 instance | Deployed app      | Loaded into the systemd service via `EnvironmentFile=` — plain file, not encrypted at rest (dev-phase only; upgrade to Secrets Manager for production, see `AWS_ARCHITECTURE.md` §1) |
+| Location                                                  | Used for          | Notes                                                                                                                                                                                |
+| --------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.env` (gitignored, copy from `.env.example`)             | Local development | Loaded automatically by `pydantic-settings`; never committed                                                                                                                         |
+| `/home/ec2-user/broker-sync-api/.env` on the EC2 instance | Deployed app      | Loaded into the systemd service via `EnvironmentFile=` — plain file, not encrypted at rest (dev-phase only; upgrade to Secrets Manager for production, see `AWS_ARCHITECTURE.md` §1) |
 
 ## 3. Connection Details
 
