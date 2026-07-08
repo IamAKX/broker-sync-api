@@ -1,6 +1,10 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class AppError(Exception):
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -44,7 +48,32 @@ class InvalidDateRangeError(AppError):
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        logger.info(
+            "request_failed",
+            method=request.method,
+            path=request.url.path,
+            status_code=exc.status_code,
+            error_type=type(exc).__name__,
+            error_code=exc.code,
+            detail=exc.detail,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "code": exc.code},
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.info(
+            "request_failed",
+            method=request.method,
+            path=request.url.path,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_type=type(exc).__name__,
+            detail=str(exc),
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal Server Error", "code": "internal_error"},
         )

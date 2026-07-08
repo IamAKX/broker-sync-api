@@ -88,7 +88,7 @@ async def refresh(session: AsyncSession, refresh_token: str) -> TokenResponse:
     result = await session.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     stored = result.scalar_one_or_none()
 
-    if stored is None or stored.revoked_at is not None or stored.expires_at < datetime.now(timezone.utc):
+    if stored is None or stored.revoked_at is not None or stored.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         raise InvalidCredentialsError("Invalid or expired refresh token")
 
     user = await session.get(User, stored.user_id)
@@ -98,7 +98,7 @@ async def refresh(session: AsyncSession, refresh_token: str) -> TokenResponse:
     if tenant is None:
         raise TenantNotFoundError("Tenant not found for user")
 
-    stored.revoked_at = datetime.now(timezone.utc)
+    stored.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
     tokens = await _issue_tokens(session, user, tenant)
     await session.commit()
     return tokens
@@ -109,5 +109,5 @@ async def logout(session: AsyncSession, refresh_token: str) -> None:
     result = await session.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     stored = result.scalar_one_or_none()
     if stored is not None and stored.revoked_at is None:
-        stored.revoked_at = datetime.now(timezone.utc)
+        stored.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()

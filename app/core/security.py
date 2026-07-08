@@ -46,4 +46,4 @@ def hash_refresh_token(token: str) -> str:
 
 
 def refresh_token_expiry() -> datetime:
-    return datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expiry_days)
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.jwt_refresh_expiry_days)

@@ -1,3 +1,4 @@
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -48,7 +49,38 @@ def create_app() -> FastAPI:
                 pass
         bind_request_context(request_id=request_id, tenant_id=tenant_id)
 
-        response = await call_next(request)
+        started_at = time.perf_counter()
+        logger.info(
+            "request_started",
+            method=request.method,
+            path=request.url.path,
+            query=request.url.query,
+        )
+
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "request_failed",
+                method=request.method,
+                path=request.url.path,
+                status_code=500,
+                duration_ms=duration_ms,
+                error_type=type(exc).__name__,
+                detail=str(exc),
+                exc_info=True,
+            )
+            raise
+
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "request_completed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
         response.headers["X-Request-ID"] = request_id
         return response
 
