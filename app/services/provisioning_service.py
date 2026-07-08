@@ -3,7 +3,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from sqlalchemy import Connection, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import TenantBase
@@ -65,6 +65,18 @@ def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> 
     connection.execution_options(schema_translate_map=None)
 
 
+def ensure_tenant_schema_tables_sync(connection: Connection, schema_name: str) -> None:
+    """Create the tenant schema and its tables if they do not already exist."""
+    connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+    scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
+    try:
+        TenantBase.metadata.create_all(scoped_connection)
+    except ProgrammingError as exc:
+        if "already exists" not in str(exc).lower():
+            raise
+    connection.execution_options(schema_translate_map=None)
+
+
 async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:
     """Picks an unused schema name and creates the schema + tenant tables on the
     caller's existing connection/transaction (via `run_sync`), then stages (via
@@ -90,3 +102,9 @@ async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:
         raise SchemaProvisioningError(f"Exhausted schema name candidates for '{name}'")
 
     return Tenant(id=uuid.uuid4(), name=name, schema_name=schema_name)
+
+
+async def ensure_tenant_schema_tables(central_session: AsyncSession, schema_name: str) -> None:
+    """Create tenant tables for an existing schema if they are missing."""
+    connection = await central_session.connection()
+    await connection.run_sync(ensure_tenant_schema_tables_sync, schema_name)

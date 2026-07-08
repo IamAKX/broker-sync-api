@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser, get_current_user
 from app.db.central_session import CentralSessionLocal
 from app.db.tenant_session import build_tenant_sessionmaker
+from app.services.provisioning_service import ensure_tenant_schema_tables
 
 
 async def get_central_db() -> AsyncGenerator[AsyncSession, None]:
@@ -21,4 +22,5 @@ async def get_tenant_db(
     """
     sessionmaker = build_tenant_sessionmaker(current_user.schema_name)
     async with sessionmaker() as session:
+        await ensure_tenant_schema_tables(session, current_user.schema_name)
         yield session
