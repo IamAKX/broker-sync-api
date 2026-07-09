@@ -148,7 +148,7 @@ On the instance:
 
 ```bash
 sudo dnf install -y python3.12 python3.12-pip git
-git clone <your-repo-url> /home/ec2-user/broker-sync-api
+git clone git@github.com:IamAKX/broker-sync-api.git /home/ec2-user/broker-sync-api
 cd /home/ec2-user/broker-sync-api
 python3.12 -m venv .venv
 source .venv/bin/activate

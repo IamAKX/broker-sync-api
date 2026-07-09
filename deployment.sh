@@ -23,6 +23,16 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+echo "[deploy] Stopping existing service if running..."
+if sudo systemctl is-active --quiet brokersync; then
+  sudo systemctl stop brokersync
+fi
+
+if pgrep -f "uvicorn|gunicorn" >/dev/null 2>&1; then
+  echo "[deploy] Stopping stray app processes..."
+  pkill -f "uvicorn|gunicorn" || true
+fi
+
 echo "[deploy] Restarting service..."
 sudo systemctl daemon-reload
 sudo systemctl restart brokersync
