@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     sql_user: str
     sql_password: str
 
+    sql_ssl_mode: str = "require"
+
     jwt_secret: str
     jwt_access_expiry_minutes: int = 30
     jwt_refresh_expiry_days: int = 7

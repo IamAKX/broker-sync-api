@@ -10,6 +10,9 @@ from app.core.config import settings
 # idle-connection resets.
 central_engine = create_async_engine(
     settings.sql_connection_url,
+    connect_args={
+        "ssl": settings.sql_ssl_mode,
+    },
     pool_size=5,
     max_overflow=5,
     pool_timeout=30,
