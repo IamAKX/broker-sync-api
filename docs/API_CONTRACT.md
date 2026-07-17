@@ -51,7 +51,7 @@ logs them in immediately.
 
 | Field | Type | Constraints |
 |---|---|---|
-| `name` | string | 1–200 chars. Drives the tenant's schema name (e.g. `sundar_dss`; a repeat becomes `sundar1_dss`) |
+| `name` | string | 1–200 chars. Stored as the user's display name and drives the tenant's schema name (e.g. `sundar_dss`; a repeat becomes `sundar1_dss`) |
 | `email` | string | Valid email, must not already be registered |
 | `password` | string | 8–128 chars |
 

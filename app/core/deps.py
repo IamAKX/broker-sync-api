@@ -16,6 +16,8 @@ class CurrentUser:
     tenant_id: str
     schema_name: str
     role: str
+    name: str
+    email: str
 
 
 async def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> CurrentUser:
@@ -31,6 +33,8 @@ async def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> Curre
         tenant_id=payload["tenant_id"],
         schema_name=payload["schema_name"],
         role=payload["role"],
+        name=payload["name"],
+        email=payload["email"],
     )
 
 

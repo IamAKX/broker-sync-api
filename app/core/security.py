@@ -21,13 +21,15 @@ def verify_password(password: str, password_hash: str) -> bool:
     return _pwd_context.verify(password, password_hash)
 
 
-def create_access_token(*, sub: str, tenant_id: str, schema_name: str, role: str) -> str:
+def create_access_token(*, sub: str, tenant_id: str, schema_name: str, role: str, name: str, email: str) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_expiry_minutes)
     payload = {
         "sub": sub,
         "tenant_id": tenant_id,
         "schema_name": schema_name,
         "role": role,
+        "name": name,
+        "email": email,
         "exp": expires_at,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)

@@ -20,7 +20,12 @@ from app.services.provisioning_service import provision_tenant
 
 async def _issue_tokens(session: AsyncSession, user: User, tenant: Tenant) -> TokenResponse:
     access_token = create_access_token(
-        sub=str(user.id), tenant_id=str(tenant.id), schema_name=tenant.schema_name, role=user.role
+        sub=str(user.id),
+        tenant_id=str(tenant.id),
+        schema_name=tenant.schema_name,
+        role=user.role,
+        name=user.name,
+        email=user.email,
     )
     refresh_token = generate_refresh_token()
     session.add(
@@ -51,6 +56,7 @@ async def signup(session: AsyncSession, name: str, email: str, password: str) ->
         user = User(
             id=uuid.uuid4(),
             tenant_id=tenant.id,
+            name=name,
             email=email,
             password_hash=hash_password(password),
             role="owner",
