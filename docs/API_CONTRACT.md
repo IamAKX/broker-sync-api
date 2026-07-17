@@ -163,6 +163,83 @@ failure response shape is documented beyond standard request validation).
 
 **Success response**: `204 No Content` (empty body).
 
+### `GET /auth/me`
+
+Requires `Authorization: Bearer <access_token>`. Returns the caller's profile.
+
+**Success response `200 OK`**
+```json
+{
+  "name": "Sundar",
+  "email": "sundar@example.com",
+  "phone_number": "+91 98765 43210",
+  "role": "owner",
+  "created_at": "2026-07-03T10:15:00",
+  "last_login_at": "2026-07-17T09:02:11"
+}
+```
+
+`last_login_at` is the timestamp of the *previous* login, not the one currently in
+progress — it stays fixed for the whole session. `null` on a user's first session
+(nothing to show yet).
+
+### `PATCH /auth/me`
+
+Requires `Authorization: Bearer <access_token>`. Updates name/email/phone number.
+Since those fields are also JWT claims, this returns a fresh access token — the
+caller must replace its stored token with the one in the response, or the JWT will
+keep showing the old values until the next login/refresh.
+
+**Request body**
+```json
+{
+  "name": "Sundar P.",
+  "email": "sundar@example.com",
+  "phone_number": "+91 98765 43210"
+}
+```
+
+Same field constraints as signup's `name`/`email`/`phone_number`.
+
+**Success response `200 OK`**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+**Failure response `409 Conflict`** — email already taken by another user
+```json
+{
+  "detail": "Email already registered",
+  "code": "duplicate_email"
+}
+```
+
+### `POST /auth/change-password`
+
+Requires `Authorization: Bearer <access_token>`. Verifies `current_password` before
+applying `new_password`.
+
+**Request body**
+```json
+{
+  "current_password": "Str0ngPassw0rd!",
+  "new_password": "EvenStr0nger!"
+}
+```
+
+**Success response**: `204 No Content` (empty body).
+
+**Failure response `401 Unauthorized`** — current password is wrong
+```json
+{
+  "detail": "Current password is incorrect",
+  "code": "invalid_credentials"
+}
+```
+
 ---
 
 ## Historic
@@ -490,9 +567,10 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 
 | HTTP status | `code` | Returned by | When |
 |---|---|---|---|
-| 401 | `invalid_credentials` | `/auth/login`, `/auth/refresh`, all `/historic/*`, all `/data/*` | Wrong email/password; missing/invalid/expired bearer token; expired/revoked/unknown refresh token |
-| 404 | `tenant_not_found` | `/auth/login`, `/auth/refresh` | A user's tenant row is missing (data integrity issue, not a normal client error) |
-| 409 | `duplicate_email` | `/auth/signup` | Signup with an email that's already registered |
+| 401 | `invalid_credentials` | `/auth/login`, `/auth/refresh`, `/auth/change-password`, all `/historic/*`, all `/data/*` | Wrong email/password; missing/invalid/expired bearer token; expired/revoked/unknown refresh token; wrong current password |
+| 404 | `tenant_not_found` | `/auth/login`, `/auth/refresh`, `/auth/me` (PATCH) | A user's tenant row is missing (data integrity issue, not a normal client error) |
+| 404 | `user_not_found` | `/auth/me` (GET, PATCH), `/auth/change-password` | The user behind a valid token no longer exists (data integrity issue, not a normal client error) |
+| 409 | `duplicate_email` | `/auth/signup`, `/auth/me` (PATCH) | Signup or profile update with an email that's already registered |
 | 422 | `invalid_trade_date` | `/historic/daily-upload` | `trade_date` is in the future |
 | 422 | `invalid_date_range` | `/historic/availability` | `from` is after `to`, or the range exceeds 366 days |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |

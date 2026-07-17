@@ -30,6 +30,12 @@ class User(CentralBase):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'owner' | 'member'
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    # current_login_at is the active session's login time; last_login_at is the one
+    # before that. Shifted on every login (current -> last, now -> current) so
+    # last_login_at stays frozen at "the previous session" for the whole session —
+    # never the login that's happening right now.
+    current_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="users")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")

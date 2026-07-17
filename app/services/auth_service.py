@@ -12,10 +12,14 @@ from app.core.security import (
     refresh_token_expiry,
     verify_password,
 )
-from app.exceptions import DuplicateEmailError, InvalidCredentialsError, TenantNotFoundError
+from app.exceptions import DuplicateEmailError, InvalidCredentialsError, TenantNotFoundError, UserNotFoundError
 from app.models.central import RefreshToken, Tenant, User
-from app.schemas.auth import TokenResponse
+from app.schemas.auth import AccessTokenResponse, TokenResponse, UserProfileResponse
 from app.services.provisioning_service import provision_tenant
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def _issue_tokens(session: AsyncSession, user: User, tenant: Tenant) -> TokenResponse:
@@ -64,6 +68,7 @@ async def signup(
             phone_number=phone_number,
             password_hash=hash_password(password),
             role="owner",
+            current_login_at=_now(),
         )
         session.add(user)
         await session.flush()
@@ -87,6 +92,9 @@ async def login(session: AsyncSession, email: str, password: str) -> TokenRespon
     tenant = await session.get(Tenant, user.tenant_id)
     if tenant is None:
         raise TenantNotFoundError("Tenant not found for user")
+
+    user.last_login_at = user.current_login_at
+    user.current_login_at = _now()
 
     tokens = await _issue_tokens(session, user, tenant)
     await session.commit()
@@ -121,3 +129,67 @@ async def logout(session: AsyncSession, refresh_token: str) -> None:
     if stored is not None and stored.revoked_at is None:
         stored.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()
+
+
+async def get_profile(session: AsyncSession, user_id: str) -> UserProfileResponse:
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise UserNotFoundError("User not found")
+    return UserProfileResponse(
+        name=user.name,
+        email=user.email,
+        phone_number=user.phone_number,
+        role=user.role,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
+    )
+
+
+async def update_profile(
+    session: AsyncSession, user_id: str, name: str, email: str, phone_number: str
+) -> AccessTokenResponse:
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise UserNotFoundError("User not found")
+
+    if email != user.email:
+        existing = await session.execute(select(User).where(User.email == email))
+        if existing.scalar_one_or_none() is not None:
+            raise DuplicateEmailError("Email already registered")
+
+    user.name = name
+    user.email = email
+    user.phone_number = phone_number
+    await session.flush()
+
+    tenant = await session.get(Tenant, user.tenant_id)
+    if tenant is None:
+        raise TenantNotFoundError("Tenant not found for user")
+
+    # name/email/phone_number are also JWT claims, so the caller's current access
+    # token is now stale — issue a fresh one reflecting the update. No new refresh
+    # token needed since the session itself hasn't changed, only its claims.
+    access_token = create_access_token(
+        sub=str(user.id),
+        tenant_id=str(tenant.id),
+        schema_name=tenant.schema_name,
+        role=user.role,
+        name=user.name,
+        email=user.email,
+        phone_number=user.phone_number,
+    )
+    await session.commit()
+    return AccessTokenResponse(access_token=access_token)
+
+
+async def change_password(
+    session: AsyncSession, user_id: str, current_password: str, new_password: str
+) -> None:
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise UserNotFoundError("User not found")
+    if not verify_password(current_password, user.password_hash):
+        raise InvalidCredentialsError("Current password is incorrect")
+
+    user.password_hash = hash_password(new_password)
+    await session.commit()

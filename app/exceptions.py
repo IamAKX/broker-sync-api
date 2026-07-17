@@ -20,6 +20,11 @@ class TenantNotFoundError(AppError):
     code = "tenant_not_found"
 
 
+class UserNotFoundError(AppError):
+    status_code = status.HTTP_404_NOT_FOUND
+    code = "user_not_found"
+
+
 class DuplicateEmailError(AppError):
     status_code = status.HTTP_409_CONFLICT
     code = "duplicate_email"
