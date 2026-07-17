@@ -18,6 +18,7 @@ class CurrentUser:
     role: str
     name: str
     email: str
+    phone_number: str
 
 
 async def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> CurrentUser:
@@ -35,6 +36,7 @@ async def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> Curre
         role=payload["role"],
         name=payload["name"],
         email=payload["email"],
+        phone_number=payload["phone_number"],
     )
 
 

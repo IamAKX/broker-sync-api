@@ -10,7 +10,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=TokenResponse, status_code=201)
 async def signup(payload: SignupRequest, session: AsyncSession = Depends(get_central_db)) -> TokenResponse:
-    return await auth_service.signup(session, payload.name, payload.email, payload.password)
+    return await auth_service.signup(
+        session, payload.name, payload.email, payload.phone_number, payload.password
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

@@ -45,6 +45,7 @@ logs them in immediately.
 {
   "name": "Sundar",
   "email": "sundar@example.com",
+  "phone_number": "+91 98765 43210",
   "password": "Str0ngPassw0rd!"
 }
 ```
@@ -53,6 +54,7 @@ logs them in immediately.
 |---|---|---|
 | `name` | string | 1–200 chars. Stored as the user's display name and drives the tenant's schema name (e.g. `sundar_dss`; a repeat becomes `sundar1_dss`) |
 | `email` | string | Valid email, must not already be registered |
+| `phone_number` | string | 7–20 chars, digits with optional leading `+`, spaces, dashes, parens |
 | `password` | string | 8–128 chars |
 
 **Success response `201 Created`**

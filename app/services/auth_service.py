@@ -26,6 +26,7 @@ async def _issue_tokens(session: AsyncSession, user: User, tenant: Tenant) -> To
         role=user.role,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
     )
     refresh_token = generate_refresh_token()
     session.add(
@@ -39,7 +40,9 @@ async def _issue_tokens(session: AsyncSession, user: User, tenant: Tenant) -> To
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
-async def signup(session: AsyncSession, name: str, email: str, password: str) -> TokenResponse:
+async def signup(
+    session: AsyncSession, name: str, email: str, phone_number: str, password: str
+) -> TokenResponse:
     existing = await session.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none() is not None:
         raise DuplicateEmailError("Email already registered")
@@ -58,6 +61,7 @@ async def signup(session: AsyncSession, name: str, email: str, password: str) ->
             tenant_id=tenant.id,
             name=name,
             email=email,
+            phone_number=phone_number,
             password_hash=hash_password(password),
             role="owner",
         )

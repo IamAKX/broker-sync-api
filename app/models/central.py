@@ -26,6 +26,7 @@ class User(CentralBase):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("Tenant.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    phone_number: Mapped[str] = mapped_column(String(20), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'owner' | 'member'
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
