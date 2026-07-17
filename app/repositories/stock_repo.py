@@ -1,4 +1,5 @@
-from sqlalchemy import insert, select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import Stock
@@ -9,37 +10,30 @@ async def bulk_get_or_create_stocks(
 ) -> dict[str, int]:
     """rows: list of (symbol, display_name). Returns {symbol: stock_id}.
 
-    Single round-trip for the existing lookup, single batched INSERT for anything
-    missing — avoids one query per stock on every upload.
+    Single batched INSERT ... ON CONFLICT DO UPDATE for every symbol in the
+    payload — creates rows that don't exist yet, and refreshes display_name
+    for rows that do. A NULL/omitted display_name in the payload never blanks
+    out a previously-stored one (COALESCE keeps the existing value), so a
+    corrected display_name from a later upload always wins over a stale one
+    from an earlier upload of the same symbol.
     """
-    symbols = [symbol for symbol, _ in rows]
-    if not symbols:
+    # de-dupe symbols repeated within the same batch, keeping the last value
+    deduped: dict[str, str | None] = {}
+    for symbol, display_name in rows:
+        deduped[symbol] = display_name
+    if not deduped:
         return {}
 
-    existing = await session.execute(select(Stock.id, Stock.symbol).where(Stock.symbol.in_(symbols)))
-    symbol_to_id = {symbol: stock_id for stock_id, symbol in existing.all()}
+    stmt = pg_insert(Stock).values(
+        [{"symbol": symbol, "display_name": display_name} for symbol, display_name in deduped.items()]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[Stock.symbol],
+        set_={"display_name": func.coalesce(stmt.excluded.display_name, Stock.display_name)},
+    ).returning(Stock.id, Stock.symbol)
 
-    missing = [(symbol, display_name) for symbol, display_name in rows if symbol not in symbol_to_id]
-    # de-dupe symbols repeated within the same batch
-    seen: set[str] = set()
-    deduped_missing = []
-    for symbol, display_name in missing:
-        if symbol in seen:
-            continue
-        seen.add(symbol)
-        deduped_missing.append((symbol, display_name))
-
-    if deduped_missing:
-        stmt = insert(Stock).values(
-            [{"symbol": symbol, "display_name": display_name} for symbol, display_name in deduped_missing]
-        )
-        await session.execute(stmt)
-        refreshed = await session.execute(
-            select(Stock.id, Stock.symbol).where(Stock.symbol.in_([s for s, _ in deduped_missing]))
-        )
-        symbol_to_id.update({symbol: stock_id for stock_id, symbol in refreshed.all()})
-
-    return symbol_to_id
+    result = await session.execute(stmt)
+    return {symbol: stock_id for stock_id, symbol in result.all()}
 
 
 async def list_stocks(session: AsyncSession) -> list[Stock]:
