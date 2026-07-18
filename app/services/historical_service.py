@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import InvalidDateRangeError, InvalidTradeDateError
+from app.exceptions import InvalidDateRangeError, InvalidTradeDateError, TradeDateIsHolidayError
 from app.repositories.historical_value_repo import (
     HistoricalValueRow,
     bulk_upsert_historical_values,
@@ -11,6 +11,7 @@ from app.repositories.historical_value_repo import (
     fetch_timeseries_rows,
     fetch_trade_dates_in_range,
 )
+from app.repositories.holiday_repo import is_holiday
 from app.repositories.metric_repo import bulk_get_or_create_metrics, get_metric_by_name
 from app.repositories.stock_repo import bulk_get_or_create_stocks, get_stock_by_symbol
 from app.schemas.historic import (
@@ -35,6 +36,8 @@ def _infer_data_type(value: float | str | None) -> str:
 async def upsert_historical_upload(session: AsyncSession, payload: UploadRequest) -> UploadResponse:
     if payload.trade_date > date.today():
         raise InvalidTradeDateError("trade_date cannot be in the future")
+    if await is_holiday(session, payload.trade_date):
+        raise TradeDateIsHolidayError(f"{payload.trade_date} is a market holiday — upload rejected")
 
     stock_pairs = [(row.symbol, row.display_name) for row in payload.rows]
     symbol_to_stock_id = await bulk_get_or_create_stocks(session, stock_pairs)

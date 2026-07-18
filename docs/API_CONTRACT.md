@@ -17,9 +17,9 @@ Interactive, always-current docs are also available at `/docs` (Swagger UI) and
 - **Base URL**: `http://localhost:8000` locally; `http://<ec2-public-ip>:8000`
   when deployed (see [`AWS_DEPLOYMENT.md`](AWS_DEPLOYMENT.md)).
 - **Content type**: `application/json` for all request and response bodies.
-- **Auth**: `Authorization: Bearer <access_token>` header on every `/historic/*` and
-  `/data/*` endpoint, and none of the `/auth/*` endpoints. The token is issued by
-  signup/login/refresh.
+- **Auth**: `Authorization: Bearer <access_token>` header on every `/historic/*`,
+  `/data/*`, and `/holidays/*` endpoint, and none of the `/auth/*` endpoints. The token
+  is issued by signup/login/refresh.
 - **Tenant scoping**: which tenant's schema a request reads/writes is derived **only**
   from the verified JWT (`schema_name` claim) — never from a header, query param, or
   request body. There is no way to specify a different tenant than the one the token
@@ -312,6 +312,16 @@ untouched — this endpoint never deletes.
 }
 ```
 
+**Failure response `422 Unprocessable Entity`** — `trade_date` is a registered market
+holiday (see [Holidays](#holidays) below) — the whole upload is rejected, nothing is
+saved
+```json
+{
+  "detail": "2026-06-27 is a market holiday — upload rejected",
+  "code": "trade_date_is_holiday"
+}
+```
+
 ### `GET /historic/snapshot?date=YYYY-MM-DD`
 
 Wide-pivoted grid for one date: all stocks × all metrics recorded that day. `date` is
@@ -558,6 +568,72 @@ Lists every stock registered for the caller's tenant.
 
 ---
 
+## Holidays
+
+All `/holidays` endpoints require `Authorization: Bearer <access_token>` and operate on
+the caller's own tenant schema. Maintained manually (Edit → Market Holidays in the
+client) — there is no automatic feed. `/historic/daily-upload` rejects any `trade_date`
+that matches a row here (see above).
+
+### `GET /holidays?year=YYYY`
+
+Lists holidays for the caller's tenant, ordered by date. `year` is optional — omitting
+it returns every holiday on record, across all years.
+
+**Success response `200 OK`**
+```json
+[
+  { "id": 1, "holiday_date": "2026-01-26", "name": "Republic Day" },
+  { "id": 2, "holiday_date": "2026-08-15", "name": "Independence Day" }
+]
+```
+
+### `POST /holidays`
+
+**Request body**
+```json
+{ "holiday_date": "2026-01-26", "name": "Republic Day" }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `holiday_date` | date | Must be unique across the tenant's holiday list |
+| `name` | string | 1–200 chars |
+
+**Success response `201 Created`**
+```json
+{ "id": 1, "holiday_date": "2026-01-26", "name": "Republic Day" }
+```
+
+**Failure response `409 Conflict`** — a holiday already exists on that date
+```json
+{
+  "detail": "A holiday already exists on 2026-01-26",
+  "code": "duplicate_holiday_date"
+}
+```
+
+### `PATCH /holidays/{holiday_id}`
+
+Full replace of `holiday_date` and `name` — same request/response/failure shape as
+`POST /holidays` above, plus:
+
+**Failure response `404 Not Found`** — no holiday with that id for this tenant
+```json
+{
+  "detail": "Holiday 999 not found",
+  "code": "holiday_not_found"
+}
+```
+
+### `DELETE /holidays/{holiday_id}`
+
+**Success response `204 No Content`** — empty body
+
+**Failure response `404 Not Found`** — same shape as `PATCH` above
+
+---
+
 ## Error Codes
 
 Every domain error response follows `{"detail": "...", "code": "..."}`. Codes map 1:1
@@ -572,7 +648,10 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 | 404 | `user_not_found` | `/auth/me` (GET, PATCH), `/auth/change-password` | The user behind a valid token no longer exists (data integrity issue, not a normal client error) |
 | 409 | `duplicate_email` | `/auth/signup`, `/auth/me` (PATCH) | Signup or profile update with an email that's already registered |
 | 422 | `invalid_trade_date` | `/historic/daily-upload` | `trade_date` is in the future |
+| 422 | `trade_date_is_holiday` | `/historic/daily-upload` | `trade_date` matches a row in the tenant's holiday list |
 | 422 | `invalid_date_range` | `/historic/availability` | `from` is after `to`, or the range exceeds 366 days |
+| 404 | `holiday_not_found` | `/holidays/{id}` (PATCH, DELETE) | No holiday with that id for this tenant |
+| 409 | `duplicate_holiday_date` | `/holidays` (POST), `/holidays/{id}` (PATCH) | Another holiday already exists on the given date |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |
 
 **Example domain error response** (`401` from a missing bearer token on any `/historic/*` or `/data/*` call):

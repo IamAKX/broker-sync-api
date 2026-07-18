@@ -50,6 +50,21 @@ class InvalidDateRangeError(AppError):
     code = "invalid_date_range"
 
 
+class HolidayNotFoundError(AppError):
+    status_code = status.HTTP_404_NOT_FOUND
+    code = "holiday_not_found"
+
+
+class DuplicateHolidayDateError(AppError):
+    status_code = status.HTTP_409_CONFLICT
+    code = "duplicate_holiday_date"
+
+
+class TradeDateIsHolidayError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "trade_date_is_holiday"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

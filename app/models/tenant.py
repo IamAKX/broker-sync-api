@@ -35,6 +35,14 @@ class Metric(TenantBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
+class Holiday(TenantBase):
+    __tablename__ = "Holiday"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    holiday_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+
 class HistoricalStockValue(TenantBase):
     __tablename__ = "HistoricalStockValue"
 
