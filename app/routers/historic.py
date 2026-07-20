@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.deps import get_tenant_db
 from app.schemas.historic import (
     DateAvailabilityResponse,
+    DeleteDayResponse,
     SnapshotResponse,
     TimeseriesResponse,
     UploadRequest,
@@ -54,3 +55,10 @@ async def availability(
     session: AsyncSession = Depends(get_tenant_db),
 ) -> DateAvailabilityResponse:
     return await historical_service.get_date_availability(session, date_from, date_to)
+
+
+@router.delete("/{trade_date}", response_model=DeleteDayResponse)
+async def delete_day(
+    trade_date: date, session: AsyncSession = Depends(get_tenant_db)
+) -> DeleteDayResponse:
+    return await historical_service.delete_historical_day(session, trade_date)

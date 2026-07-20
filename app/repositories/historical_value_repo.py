@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,3 +137,13 @@ async def fetch_timeseries_rows(
 
     result = await session.execute(stmt)
     return result.mappings().all()
+
+
+async def delete_values_for_date(session: AsyncSession, trade_date: date) -> int:
+    """Deletes every HistoricalStockValue row for one trade_date, across all
+    stocks and metrics. Uses the ix_hsv_date index. Stock/Metric catalog rows
+    are left untouched — only the values for this date are removed.
+    """
+    stmt = delete(HistoricalStockValue).where(HistoricalStockValue.trade_date == trade_date)
+    result = await session.execute(stmt)
+    return result.rowcount or 0

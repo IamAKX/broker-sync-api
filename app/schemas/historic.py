@@ -23,6 +23,11 @@ class UploadResponse(BaseModel):
     values_upserted: int
 
 
+class DeleteDayResponse(BaseModel):
+    trade_date: date
+    values_deleted: int
+
+
 class StockSnapshot(BaseModel):
     symbol: str
     display_name: str | None

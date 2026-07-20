@@ -517,6 +517,37 @@ rather than an empty list.
 }
 ```
 
+### `DELETE /historic/{trade_date}`
+
+Deletes every stock/metric value recorded for `trade_date` — all stocks, all metrics,
+that one date. Idempotent — deleting a date with no data is not an error, it just
+reports `values_deleted: 0`. The `Stock`/`Metric` catalogs themselves are untouched;
+only `HistoricalStockValue` rows for this date are removed. This cannot be undone.
+
+**Example**: `DELETE /historic/2026-06-27`
+
+**Success response `200 OK`**
+```json
+{
+  "trade_date": "2026-06-27",
+  "values_deleted": 340
+}
+```
+
+**Failure response `422 Unprocessable Entity`** — malformed `trade_date` path segment
+```json
+{
+  "detail": [
+    {
+      "type": "date_from_datetime_parsing",
+      "loc": ["path", "trade_date"],
+      "msg": "Input should be a valid date or datetime, input is too short",
+      "input": "not-a-date"
+    }
+  ]
+}
+```
+
 ---
 
 ## Data

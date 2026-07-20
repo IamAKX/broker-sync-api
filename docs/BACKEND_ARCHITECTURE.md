@@ -258,6 +258,7 @@ catalog without deleting its historical rows.
 | GET | `/historic/snapshot?date=` | Wide grid for one date (defaults to latest) |
 | GET | `/historic/latest` | Alias for snapshot with no date |
 | GET | `/historic/timeseries?symbol=&metric=&from=&to=` | Single metric/stock across a date range |
+| DELETE | `/historic/{trade_date}` | Delete every value recorded for one date, all stocks/metrics |
 
 **Data** (lists the `Stock`/`Metric` catalogs)
 | Method | Path | Description |

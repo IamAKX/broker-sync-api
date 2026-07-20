@@ -6,6 +6,7 @@ from app.exceptions import InvalidDateRangeError, InvalidTradeDateError, TradeDa
 from app.repositories.historical_value_repo import (
     HistoricalValueRow,
     bulk_upsert_historical_values,
+    delete_values_for_date,
     fetch_latest_trade_date,
     fetch_snapshot_rows,
     fetch_timeseries_rows,
@@ -17,6 +18,7 @@ from app.repositories.stock_repo import bulk_get_or_create_stocks, get_stock_by_
 from app.schemas.historic import (
     DateAvailability,
     DateAvailabilityResponse,
+    DeleteDayResponse,
     SnapshotResponse,
     StockSnapshot,
     TimeseriesPoint,
@@ -131,3 +133,13 @@ async def get_date_availability(
         current += timedelta(days=1)
 
     return DateAvailabilityResponse(date_from=date_from, date_to=date_to, dates=dates)
+
+
+async def delete_historical_day(session: AsyncSession, trade_date: date) -> DeleteDayResponse:
+    """Deletes every stock/metric value recorded for trade_date. Idempotent —
+    deleting a date with no data is not an error, matching how reads treat
+    missing data as a normal case (see get_snapshot).
+    """
+    values_deleted = await delete_values_for_date(session, trade_date)
+    await session.commit()
+    return DeleteDayResponse(trade_date=trade_date, values_deleted=values_deleted)
