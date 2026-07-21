@@ -16,3 +16,4 @@ def test_tenant_metadata_registers_historical_model():
     from app.db.base import TenantBase
 
     assert "HistoricalStockValue" in TenantBase.metadata.tables
+    assert "LmvDailySnapshot" in TenantBase.metadata.tables

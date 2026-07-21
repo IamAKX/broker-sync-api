@@ -62,3 +62,37 @@ class HistoricalStockValue(TenantBase):
         # Serves snapshot reads: WHERE trade_date = ?
         Index("ix_hsv_date", "trade_date"),
     )
+
+
+class LmvDailySnapshot(TenantBase):
+    """Full daily archive of the Live Master View grid — every column shown on
+    screen (imported broker columns + formula_engine-computed columns), minus
+    strategy columns (those are user-defined and computed client-side only,
+    never part of this archive).
+
+    Deliberately separate from HistoricalStockValue: that table holds only the
+    canonical raw inputs (Open/High/Low/Close/AvgRate/Quantity/DiffPcnt) that
+    formula_engine.py recomputes everything else from, and must stay that way
+    to avoid derived values drifting from their source of truth. This table is
+    a pure audit/archive of what the LMV displayed that day and is never read
+    back for recomputation — reuses the same Metric registry as
+    HistoricalStockValue so a column name (e.g. "AvgRate") maps to one Metric
+    row no matter which table it's valued in.
+    """
+
+    __tablename__ = "LmvDailySnapshot"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    stock_id: Mapped[int] = mapped_column(Integer, ForeignKey("Stock.id"), primary_key=True)
+    metric_id: Mapped[int] = mapped_column(Integer, ForeignKey("Metric.id"), primary_key=True)
+    value_number: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
+    value_text: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    stock: Mapped["Stock"] = relationship()
+    metric: Mapped["Metric"] = relationship()
+
+    __table_args__ = (
+        Index("ix_lds_stock_metric_date", "stock_id", "metric_id", "trade_date"),
+        Index("ix_lds_date", "trade_date"),
+    )

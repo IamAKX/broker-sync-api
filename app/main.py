@@ -12,7 +12,7 @@ from app.core.security import decode_access_token
 from app.db.central_session import central_engine
 from app.db.tenant_session import tenant_engine
 from app.exceptions import register_exception_handlers
-from app.routers import auth, data, historic, holidays
+from app.routers import auth, data, historic, holidays, lmv_snapshot
 
 configure_logging()
 logger = get_logger(__name__)
@@ -90,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(historic.router)
     app.include_router(data.router)
     app.include_router(holidays.router)
+    app.include_router(lmv_snapshot.router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
