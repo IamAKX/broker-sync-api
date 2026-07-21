@@ -1,10 +1,10 @@
 from datetime import date
 
-from sqlalchemy import func
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tenant import LmvDailySnapshot
+from app.models.tenant import LmvDailySnapshot, Metric, Stock
 
 # Same batch sizing rationale as historical_value_repo._UPSERT_BATCH_SIZE.
 _UPSERT_BATCH_SIZE = 400
@@ -63,4 +63,51 @@ async def _upsert_batch(session: AsyncSession, batch: list[LmvSnapshotRow]) -> i
         },
     )
     result = await session.execute(insert_stmt)
+    return result.rowcount or 0
+
+
+async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
+    """Same shape as historical_value_repo.fetch_snapshot_rows, reading
+    LmvDailySnapshot instead — feeds the LMV snapshot's wide-pivot response.
+    """
+    stmt = (
+        select(
+            Stock.symbol,
+            Stock.display_name,
+            Metric.name.label("metric_name"),
+            LmvDailySnapshot.value_number,
+            LmvDailySnapshot.value_text,
+        )
+        .join(LmvDailySnapshot.stock)
+        .join(LmvDailySnapshot.metric)
+        .where(LmvDailySnapshot.trade_date == trade_date)
+    )
+    result = await session.execute(stmt)
+    return result.mappings().all()
+
+
+async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
+    stmt = select(func.max(LmvDailySnapshot.trade_date))
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def fetch_trade_dates_in_range(
+    session: AsyncSession, date_from: date, date_to: date
+) -> set[date]:
+    stmt = (
+        select(LmvDailySnapshot.trade_date)
+        .distinct()
+        .where(LmvDailySnapshot.trade_date >= date_from)
+        .where(LmvDailySnapshot.trade_date <= date_to)
+    )
+    result = await session.execute(stmt)
+    return set(result.scalars().all())
+
+
+async def delete_values_for_date(session: AsyncSession, trade_date: date) -> int:
+    """Deletes every LmvDailySnapshot row for one trade_date. Stock/Metric
+    catalog rows (shared with HistoricalStockValue) are left untouched."""
+    stmt = delete(LmvDailySnapshot).where(LmvDailySnapshot.trade_date == trade_date)
+    result = await session.execute(stmt)
     return result.rowcount or 0
