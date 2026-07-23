@@ -59,12 +59,16 @@ async def upsert_lmv_snapshot(
         for metric_name, value in row.metrics.items():
             metric_id = metric_name_to_id[metric_name]
             is_number = metric_types[metric_name] == "number"
+            # A metric's type is inferred from its first-seen value; later rows for the
+            # same metric can still carry a non-numeric value (e.g. a blank cell in the
+            # live grid), which must not be passed to the NUMERIC(18,4) column as-is.
+            numeric_value = value if isinstance(value, (int, float)) else None
             value_rows.append(
                 LmvSnapshotRow(
                     trade_date=payload.trade_date,
                     stock_id=stock_id,
                     metric_id=metric_id,
-                    value_number=value if is_number else None,
+                    value_number=numeric_value if is_number else None,
                     value_text=None if is_number else value,
                 )
             )
