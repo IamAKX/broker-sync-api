@@ -6,6 +6,7 @@ import jwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import ORJSONResponse
 
 from app.core.config import settings
 from app.core.logging import bind_request_context, configure_logging, get_logger
@@ -27,7 +28,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Broker Sync API", lifespan=lifespan)
+    # orjson's C-based encoder is markedly faster than the stdlib json FastAPI uses by
+    # default — matters most on wide payloads like lmv-snapshot (up to ~17k values).
+    app = FastAPI(title="Broker Sync API", lifespan=lifespan, default_response_class=ORJSONResponse)
 
     app.add_middleware(
         CORSMiddleware,
