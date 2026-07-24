@@ -114,7 +114,20 @@ async def provision_tenant(central_session: AsyncSession, name: str) -> Tenant:
     return Tenant(id=uuid.uuid4(), name=name, schema_name=schema_name)
 
 
+_provisioned_schemas: set[str] = set()
+
+
 async def ensure_tenant_schema_tables(central_session: AsyncSession, schema_name: str) -> None:
-    """Create tenant tables for an existing schema if they are missing."""
+    """Create tenant tables for an existing schema if they are missing.
+
+    Called from get_tenant_db on every tenant-scoped request, but a schema's tables
+    are only ever created once (at signup) and never altered afterward — so once a
+    schema has been confirmed provisioned in this process, skip the
+    create_all()/has_table introspection round-trips entirely instead of repeating
+    them on every single request.
+    """
+    if schema_name in _provisioned_schemas:
+        return
     connection = await central_session.connection()
     await connection.run_sync(ensure_tenant_schema_tables_sync, schema_name)
+    _provisioned_schemas.add(schema_name)
