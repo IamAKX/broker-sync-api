@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import jwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import settings
 from app.core.logging import bind_request_context, configure_logging, get_logger
@@ -35,6 +36,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Snapshot/timeseries JSON payloads (e.g. lmv-snapshot: ~350KB at ~78 metrics x
+    # 215 stocks) compress heavily — gzip cuts transfer time over the public EC2 link
+    # at negligible CPU cost. 1KB floor skips wasting cycles on tiny responses.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next):
