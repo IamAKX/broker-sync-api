@@ -90,12 +90,7 @@ def _pivot_snapshot(trade_date: date, rows) -> SnapshotResponse:
         symbol = row["symbol"]
         if symbol not in by_symbol:
             by_symbol[symbol] = StockSnapshot(symbol=symbol, display_name=row["display_name"], metrics={})
-        # value_number comes back as Decimal (NUMERIC(18,4) column); cast to float here
-        # so it matches the float | str | None schema exactly — leaving it as Decimal
-        # makes Pydantic fall back to a warning-emitting coercion path on every single
-        # value during response serialization, which dominates latency on wide payloads
-        # (this table can be ~78 metrics/stock vs historic's ~7).
-        value = float(row["value_number"]) if row["value_number"] is not None else row["value_text"]
+        value = row["value_number"] if row["value_number"] is not None else row["value_text"]
         by_symbol[symbol].metrics[row["metric_name"]] = value
 
     return SnapshotResponse(trade_date=trade_date, stocks=list(by_symbol.values()))
