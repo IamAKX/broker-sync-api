@@ -74,6 +74,13 @@ async def _upsert_batch(session: AsyncSession, batch: list[HistoricalValueRow]) 
 async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     """Rows for one date, joined to stock/metric names — feeds the wide-pivot
     snapshot response. Uses the ix_hsv_date index.
+
+    Executed on the underlying Core connection rather than the ORM session:
+    profiling showed session.execute() routes even a plain-column select like
+    this through SQLAlchemy's per-row ORM result machinery
+    (orm_setup_cursor_result/instances()), which dominated latency on wide
+    payloads (up to ~17k rows for lmv-snapshot's equivalent query).
+    session.connection() reuses the same transaction, just executes as Core.
     """
     stmt = (
         select(
@@ -87,7 +94,8 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
         .join(HistoricalStockValue.metric)
         .where(HistoricalStockValue.trade_date == trade_date)
     )
-    result = await session.execute(stmt)
+    connection = await session.connection()
+    result = await connection.execute(stmt)
     return result.mappings().all()
 
 
@@ -135,7 +143,9 @@ async def fetch_timeseries_rows(
         stmt = stmt.where(HistoricalStockValue.trade_date <= date_to)
     stmt = stmt.order_by(HistoricalStockValue.trade_date)
 
-    result = await session.execute(stmt)
+    # Core connection, not the ORM session — see fetch_snapshot_rows above.
+    connection = await session.connection()
+    result = await connection.execute(stmt)
     return result.mappings().all()
 
 

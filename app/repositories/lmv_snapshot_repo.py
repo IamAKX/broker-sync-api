@@ -69,6 +69,14 @@ async def _upsert_batch(session: AsyncSession, batch: list[LmvSnapshotRow]) -> i
 async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     """Same shape as historical_value_repo.fetch_snapshot_rows, reading
     LmvDailySnapshot instead — feeds the LMV snapshot's wide-pivot response.
+
+    Executed on the underlying Core connection rather than the ORM session:
+    profiling this exact query (up to ~78 metrics/stock, ~17k rows) showed
+    session.execute() routes even a plain-column select through SQLAlchemy's
+    per-row ORM result machinery (orm_setup_cursor_result/instances()), which
+    was the single largest cost in the request — bigger than the DB query
+    itself (~9ms per EXPLAIN ANALYZE). session.connection() reuses the same
+    transaction, just executes as Core.
     """
     stmt = (
         select(
@@ -82,7 +90,8 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
         .join(LmvDailySnapshot.metric)
         .where(LmvDailySnapshot.trade_date == trade_date)
     )
-    result = await session.execute(stmt)
+    connection = await session.connection()
+    result = await connection.execute(stmt)
     return result.mappings().all()
 
 
