@@ -14,13 +14,7 @@ from app.repositories.lmv_snapshot_repo import (
 )
 from app.repositories.metric_repo import bulk_get_or_create_metrics
 from app.repositories.stock_repo import bulk_get_or_create_stocks
-from app.schemas.historic import (
-    DateAvailability,
-    DateAvailabilityResponse,
-    DeleteDayResponse,
-    SnapshotResponse,
-    StockSnapshot,
-)
+from app.schemas.historic import DateAvailability, DateAvailabilityResponse, DeleteDayResponse
 from app.schemas.lmv_snapshot import LmvSnapshotUploadRequest, LmvSnapshotUploadResponse
 
 _MAX_DATE_RANGE_DAYS = 366
@@ -84,27 +78,33 @@ async def upsert_lmv_snapshot(
     )
 
 
-def _pivot_snapshot(trade_date: date, rows) -> SnapshotResponse:
-    by_symbol: dict[str, StockSnapshot] = {}
+def _pivot_snapshot(trade_date: date, rows) -> dict:
+    """Returns a plain dict shaped exactly like SnapshotResponse (trade_date,
+    stocks[].symbol/display_name/metrics) instead of constructing
+    StockSnapshot/SnapshotResponse Pydantic model instances. This table can run
+    ~78 metrics/stock — building and validating ~215 nested Pydantic models per
+    request (thousands of per-value validations) dominated latency on this
+    endpoint. The route returns this dict via a raw ORJSONResponse, bypassing
+    FastAPI's response_model serialization; response_model stays declared on
+    the route purely for OpenAPI docs, so the wire format is unchanged.
+    value_number is cast to float here (Postgres returns Decimal for
+    NUMERIC(18,4)) since orjson has no native Decimal support.
+    """
+    by_symbol: dict[str, dict] = {}
     for row in rows:
         symbol = row["symbol"]
         if symbol not in by_symbol:
-            by_symbol[symbol] = StockSnapshot(symbol=symbol, display_name=row["display_name"], metrics={})
-        # value_number comes back as Decimal (NUMERIC(18,4) column); cast to float here
-        # so it matches the float | str | None schema exactly — leaving it as Decimal
-        # makes Pydantic fall back to a warning-emitting coercion path on every single
-        # value during response serialization, which dominates latency on wide payloads
-        # (this table can be ~78 metrics/stock vs historic's ~7).
+            by_symbol[symbol] = {"symbol": symbol, "display_name": row["display_name"], "metrics": {}}
         value = float(row["value_number"]) if row["value_number"] is not None else row["value_text"]
-        by_symbol[symbol].metrics[row["metric_name"]] = value
+        by_symbol[symbol]["metrics"][row["metric_name"]] = value
 
-    return SnapshotResponse(trade_date=trade_date, stocks=list(by_symbol.values()))
+    return {"trade_date": trade_date, "stocks": list(by_symbol.values())}
 
 
-async def get_snapshot(session: AsyncSession, trade_date: date | None) -> SnapshotResponse:
+async def get_snapshot(session: AsyncSession, trade_date: date | None) -> dict:
     resolved_date = trade_date or await fetch_latest_trade_date(session)
     if resolved_date is None:
-        return SnapshotResponse(trade_date=date.today(), stocks=[])
+        return {"trade_date": date.today(), "stocks": []}
     rows = await fetch_snapshot_rows(session, resolved_date)
     return _pivot_snapshot(resolved_date, rows)
 

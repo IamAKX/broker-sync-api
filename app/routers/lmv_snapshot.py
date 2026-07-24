@@ -1,6 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.deps import get_tenant_db
@@ -22,13 +23,22 @@ async def daily_upload(
 async def snapshot(
     date_param: date | None = Query(default=None, alias="date"),
     session: AsyncSession = Depends(get_tenant_db),
-) -> SnapshotResponse:
-    return await lmv_snapshot_service.get_snapshot(session, date_param)
+) -> ORJSONResponse:
+    """Returns a raw ORJSONResponse instead of the SnapshotResponse Pydantic
+    model — bypasses FastAPI's response_model validation/serialization, which
+    dominated latency on this table's wide payloads (up to ~78 metrics/stock).
+    response_model stays declared above purely so /docs still shows the
+    correct schema; the actual wire format is unchanged (see
+    lmv_snapshot_service._pivot_snapshot).
+    """
+    data = await lmv_snapshot_service.get_snapshot(session, date_param)
+    return ORJSONResponse(content=data)
 
 
 @router.get("/latest", response_model=SnapshotResponse)
-async def latest(session: AsyncSession = Depends(get_tenant_db)) -> SnapshotResponse:
-    return await lmv_snapshot_service.get_snapshot(session, None)
+async def latest(session: AsyncSession = Depends(get_tenant_db)) -> ORJSONResponse:
+    data = await lmv_snapshot_service.get_snapshot(session, None)
+    return ORJSONResponse(content=data)
 
 
 @router.get("/availability", response_model=DateAvailabilityResponse)
