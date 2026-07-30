@@ -64,6 +64,39 @@ class HistoricalStockValue(TenantBase):
     )
 
 
+class OpeningRangeCapture(TenantBase):
+    """One row per (trade_date, stock): the highest High and lowest Low the
+    client's Live Master View showed for that stock during the opening
+    window of that trading day (default first 15 minutes after market open,
+    but the window length is client-configured — see window_minutes).
+
+    Deliberately its own table rather than more HistoricalStockValue/
+    LmvDailySnapshot rows in the EAV catalog: High/Low-of-window is exactly
+    two always-numeric columns per (stock, date), never a varying/user-defined
+    set of metrics, so the EAV indirection would add cost (extra Metric
+    lookups, wide pivot joins) without buying anything back.
+    """
+
+    __tablename__ = "OpeningRangeCapture"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    stock_id: Mapped[int] = mapped_column(Integer, ForeignKey("Stock.id"), primary_key=True)
+    high: Mapped[float] = mapped_column(DECIMAL(18, 4), nullable=False)
+    low: Mapped[float] = mapped_column(DECIMAL(18, 4), nullable=False)
+    # Length of the capture window in minutes (e.g. 15) — client-configured
+    # and stored per row since a client could change its setting between
+    # trading days; lets a reader interpret older rows correctly even after
+    # the configured window length changes going forward.
+    window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    stock: Mapped["Stock"] = relationship()
+
+    __table_args__ = (
+        Index("ix_orc_date", "trade_date"),
+    )
+
+
 class LmvDailySnapshot(TenantBase):
     """Full daily archive of the Live Master View grid — every column shown on
     screen (imported broker columns + formula_engine-computed columns), minus

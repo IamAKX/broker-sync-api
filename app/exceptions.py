@@ -65,6 +65,11 @@ class TradeDateIsHolidayError(AppError):
     code = "trade_date_is_holiday"
 
 
+class InvalidOpeningRangeError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "invalid_opening_range"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
