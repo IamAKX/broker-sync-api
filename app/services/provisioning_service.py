@@ -154,9 +154,20 @@ async def ensure_tenant_schema_tables(central_session: AsyncSession, schema_name
     schema has been confirmed provisioned in this process, skip the
     create_all()/has_table introspection round-trips entirely instead of repeating
     them on every single request.
+
+    Commits explicitly, rather than leaving that to whatever the caller's request
+    does with the rest of the session: this DDL is provisioning bookkeeping, not
+    part of the request's own business transaction, and a read-only endpoint (the
+    majority of traffic) never calls session.commit() itself — without this commit
+    the DDL was silently rolled back when the session closed at the end of the
+    request, while `_provisioned_schemas` still (incorrectly) marked the schema
+    done, permanently skipping it for the rest of the process's lifetime. This is
+    exactly what left a newly-added tenant table (OpeningRangeCapture) missing
+    from an existing tenant despite this function "succeeding" on every request.
     """
     if schema_name in _provisioned_schemas:
         return
     connection = await central_session.connection()
     await connection.run_sync(ensure_tenant_schema_tables_sync, schema_name)
+    await central_session.commit()
     _provisioned_schemas.add(schema_name)

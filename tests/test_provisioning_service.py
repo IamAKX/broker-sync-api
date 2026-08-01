@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from sqlalchemy.exc import ProgrammingError
 
@@ -85,3 +87,72 @@ def test_non_already_exists_error_still_raises(monkeypatch):
 
     # The failing table's savepoint was rolled back before the error propagated.
     assert conn.nested_log == ["rollback"]
+
+
+class _FakeAsyncConnection:
+    def __init__(self, log):
+        self._log = log
+
+    async def run_sync(self, fn, *args):
+        self._log.append(("run_sync", args))
+
+
+class _FakeAsyncSession:
+    """Stand-in for the AsyncSession ensure_tenant_schema_tables receives —
+    tracks call order so tests can assert the DDL is committed before (not
+    instead of) _provisioned_schemas gets marked done."""
+
+    def __init__(self, log, commit_raises=None):
+        self._log = log
+        self._commit_raises = commit_raises
+
+    async def connection(self):
+        return _FakeAsyncConnection(self._log)
+
+    async def commit(self):
+        self._log.append(("commit", ()))
+        if self._commit_raises is not None:
+            raise self._commit_raises
+
+
+def test_ensure_tenant_schema_tables_commits_before_marking_provisioned(monkeypatch):
+    """Regression test for the actual root cause behind OpeningRangeCapture
+    staying missing: this function's DDL was never committed for read-only
+    requests (the majority of traffic never calls session.commit() itself),
+    so it was silently rolled back on session close — while _provisioned_schemas
+    still marked the schema done, permanently skipping retries."""
+    from app.services import provisioning_service
+
+    monkeypatch.setattr(provisioning_service, "_provisioned_schemas", set())
+    log = []
+    session = _FakeAsyncSession(log)
+
+    asyncio.run(provisioning_service.ensure_tenant_schema_tables(session, "hari_dss"))
+
+    assert [event for event, _ in log] == ["run_sync", "commit"]
+    assert "hari_dss" in provisioning_service._provisioned_schemas
+
+
+def test_ensure_tenant_schema_tables_skips_when_already_provisioned(monkeypatch):
+    from app.services import provisioning_service
+
+    monkeypatch.setattr(provisioning_service, "_provisioned_schemas", {"hari_dss"})
+    log = []
+    session = _FakeAsyncSession(log)
+
+    asyncio.run(provisioning_service.ensure_tenant_schema_tables(session, "hari_dss"))
+
+    assert log == []
+
+
+def test_ensure_tenant_schema_tables_does_not_mark_provisioned_if_commit_fails(monkeypatch):
+    from app.services import provisioning_service
+
+    monkeypatch.setattr(provisioning_service, "_provisioned_schemas", set())
+    log = []
+    session = _FakeAsyncSession(log, commit_raises=RuntimeError("commit failed"))
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        asyncio.run(provisioning_service.ensure_tenant_schema_tables(session, "hari_dss"))
+
+    assert "hari_dss" not in provisioning_service._provisioned_schemas
