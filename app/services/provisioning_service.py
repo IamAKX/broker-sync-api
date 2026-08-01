@@ -49,6 +49,39 @@ async def next_candidate_name(central_session: AsyncSession, name: str) -> Async
             yield candidate
 
 
+def _create_all_tables_individually(connection: Connection) -> None:
+    """create_all(), one table at a time, each in its own SAVEPOINT.
+
+    A single batched `TenantBase.metadata.create_all(connection)` relies on its
+    checkfirst existence check correctly seeing every table that already exists
+    under the active schema_translate_map — and that check does not reliably
+    honor schema_translate_map for reflection the way DDL emission does. When it
+    misses, create_all tries to (re-)issue CREATE TABLE for an already-existing
+    table, Postgres raises a real "already exists" error on it, and — because
+    that error aborts the whole enclosing transaction, not just that one
+    statement — every table later in create_all's dependency-sorted order never
+    gets its CREATE TABLE issued at all. This is exactly what left a
+    newly-added tenant table (OpeningRangeCapture) missing from a
+    long-since-provisioned tenant schema despite create_all "succeeding" (its
+    error was caught and swallowed) on every request.
+
+    Creating tables one at a time under a SAVEPOINT sidesteps this: an
+    "already exists" on one table only rolls back to that table's own
+    savepoint (via `nested.rollback()`), leaving the outer transaction — and
+    every other table's creation — unaffected.
+    """
+    for table in TenantBase.metadata.sorted_tables:
+        nested = connection.begin_nested()
+        try:
+            TenantBase.metadata.create_all(connection, tables=[table], checkfirst=True)
+        except ProgrammingError as exc:
+            nested.rollback()
+            if "already exists" not in str(exc).lower():
+                raise
+        else:
+            nested.commit()
+
+
 def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> None:
     """Runs inside AsyncConnection.run_sync — `connection` is the *same* underlying
     DBAPI connection/transaction as the caller's AsyncSession, so schema creation,
@@ -62,7 +95,7 @@ def _create_schema_and_tables_sync(connection: Connection, schema_name: str) -> 
     # on this connection (including the caller's central-schema Tenant/User inserts) —
     # reset it back to no-op immediately after create_all() finishes using it.
     scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
-    TenantBase.metadata.create_all(scoped_connection)
+    _create_all_tables_individually(scoped_connection)
     connection.execution_options(schema_translate_map=None)
 
 
@@ -79,11 +112,7 @@ def ensure_tenant_schema_tables_sync(connection: Connection, schema_name: str) -
     original_map = connection.get_execution_options().get("schema_translate_map")
     connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
     scoped_connection = connection.execution_options(schema_translate_map={None: schema_name})
-    try:
-        TenantBase.metadata.create_all(scoped_connection)
-    except ProgrammingError as exc:
-        if "already exists" not in str(exc).lower():
-            raise
+    _create_all_tables_individually(scoped_connection)
     connection.execution_options(schema_translate_map=original_map)
 
 
