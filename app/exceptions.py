@@ -70,6 +70,11 @@ class InvalidOpeningRangeError(AppError):
     code = "invalid_opening_range"
 
 
+class EmailDeliveryError(AppError):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "email_delivery_failed"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

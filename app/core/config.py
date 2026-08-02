@@ -21,9 +21,19 @@ class Settings(BaseSettings):
 
     cors_origins: str = "*"
 
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_user: str
+    smtp_password: str
+    smtp_from: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def smtp_from_address(self) -> str:
+        return self.smtp_from or self.smtp_user
 
     @property
     def cors_origin_list(self) -> list[str]:
