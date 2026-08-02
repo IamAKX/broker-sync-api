@@ -14,7 +14,7 @@ from app.core.security import (
 )
 from app.exceptions import DuplicateEmailError, InvalidCredentialsError, TenantNotFoundError, UserNotFoundError
 from app.models.central import RefreshToken, Tenant, User
-from app.schemas.auth import AccessTokenResponse, TokenResponse, UserProfileResponse
+from app.schemas.auth import AccessTokenResponse, ThemeResponse, TokenResponse, UserProfileResponse
 from app.services.provisioning_service import provision_tenant
 
 
@@ -140,9 +140,26 @@ async def get_profile(session: AsyncSession, user_id: str) -> UserProfileRespons
         email=user.email,
         phone_number=user.phone_number,
         role=user.role,
+        theme=user.theme,
         created_at=user.created_at,
         last_login_at=user.last_login_at,
     )
+
+
+async def get_theme(session: AsyncSession, user_id: str) -> ThemeResponse:
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise UserNotFoundError("User not found")
+    return ThemeResponse(theme=user.theme)
+
+
+async def update_theme(session: AsyncSession, user_id: str, theme: str) -> ThemeResponse:
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise UserNotFoundError("User not found")
+    user.theme = theme
+    await session.commit()
+    return ThemeResponse(theme=user.theme)
 
 
 async def update_profile(

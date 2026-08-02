@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -41,6 +42,7 @@ class UserProfileResponse(BaseModel):
     email: str
     phone_number: str
     role: str
+    theme: str
     created_at: datetime
     last_login_at: datetime | None
 
@@ -54,3 +56,11 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class ThemeResponse(BaseModel):
+    theme: Literal["dark", "light"]
+
+
+class ThemeUpdateRequest(BaseModel):
+    theme: Literal["dark", "light"]

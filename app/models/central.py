@@ -36,6 +36,11 @@ class User(CentralBase):
     # never the login that's happening right now.
     current_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Personal UI preference, synced across every device the user logs into —
+    # unlike SavedStrategy/FormulaVariable/UserSetting (tenant schema, since
+    # those reference tenant-specific business data), theme is pure identity-
+    # level preference with no tenant dependency, so it lives here instead.
+    theme: Mapped[str] = mapped_column(String(10), nullable=False, server_default="light")
 
     tenant: Mapped["Tenant"] = relationship(back_populates="users")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")

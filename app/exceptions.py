@@ -75,6 +75,16 @@ class EmailDeliveryError(AppError):
     code = "email_delivery_failed"
 
 
+class StrategyNotFoundError(AppError):
+    status_code = status.HTTP_404_NOT_FOUND
+    code = "strategy_not_found"
+
+
+class FormulaVariableNotFoundError(AppError):
+    status_code = status.HTTP_404_NOT_FOUND
+    code = "formula_variable_not_found"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

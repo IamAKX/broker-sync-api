@@ -10,6 +10,8 @@ from app.schemas.auth import (
     LogoutRequest,
     RefreshRequest,
     SignupRequest,
+    ThemeResponse,
+    ThemeUpdateRequest,
     TokenResponse,
     UpdateProfileRequest,
     UserProfileResponse,
@@ -69,3 +71,20 @@ async def change_password(
     await auth_service.change_password(
         session, current_user.user_id, payload.current_password, payload.new_password
     )
+
+
+@router.get("/me/theme", response_model=ThemeResponse)
+async def get_theme(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_central_db),
+) -> ThemeResponse:
+    return await auth_service.get_theme(session, current_user.user_id)
+
+
+@router.put("/me/theme", response_model=ThemeResponse)
+async def update_theme(
+    payload: ThemeUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_central_db),
+) -> ThemeResponse:
+    return await auth_service.update_theme(session, current_user.user_id, payload.theme)
