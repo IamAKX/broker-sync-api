@@ -6,6 +6,7 @@ else should import smtplib directly.
 
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr, formatdate, make_msgid
 
 from starlette.concurrency import run_in_threadpool
 
@@ -15,11 +16,19 @@ from app.exceptions import EmailDeliveryError
 
 def send_email(to_email: str, subject: str, body: str) -> None:
     """Blocking send — call send_email_async from async routes instead so the
-    event loop isn't stalled for the duration of the SMTP round-trip."""
+    event loop isn't stalled for the duration of the SMTP round-trip.
+
+    Sets Date/Message-ID/a named From explicitly — smtplib doesn't add these
+    on its own, and their absence is itself a spam-classifier signal on top
+    of everything else that makes app-generated mail relayed through a
+    personal Gmail account look automated.
+    """
     message = EmailMessage()
-    message["From"] = settings.smtp_from_address
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_address))
     message["To"] = to_email
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain="gmail.com")
     message.set_content(body)
 
     try:

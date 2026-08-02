@@ -59,6 +59,11 @@ def test_send_email_logs_in_and_sends_expected_message():
     assert sent_message["To"] == "someone@example.com"
     assert sent_message["Subject"] == "Subject"
     assert sent_message.get_content().strip() == "Body text"
+    # Date/Message-ID/a named From aren't added by smtplib on its own — their
+    # absence is itself a spam signal, so email_service sets them explicitly.
+    assert sent_message["Date"]
+    assert sent_message["Message-ID"]
+    assert "<" in sent_message["From"] and "@" in sent_message["From"]
 
 
 def test_send_email_wraps_smtp_exceptions():

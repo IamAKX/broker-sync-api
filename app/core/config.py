@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     smtp_user: str
     smtp_password: str
     smtp_from: str = ""
+    smtp_from_name: str = "Broker Sync"
 
     @property
     def is_production(self) -> bool:
