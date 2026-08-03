@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.deps import get_tenant_db
-from app.schemas.historic import DateAvailabilityResponse, DeleteDayResponse, SnapshotResponse
+from app.schemas.historic import (
+    DateAvailabilityResponse,
+    DeleteDayResponse,
+    SnapshotRangeResponse,
+    SnapshotResponse,
+)
 from app.schemas.lmv_snapshot import LmvSnapshotUploadRequest, LmvSnapshotUploadResponse
 from app.services import lmv_snapshot_service
 
@@ -29,6 +34,14 @@ async def snapshot(
 @router.get("/latest", response_model=SnapshotResponse)
 async def latest(session: AsyncSession = Depends(get_tenant_db)) -> SnapshotResponse:
     return await lmv_snapshot_service.get_snapshot(session, None)
+
+
+@router.get("/range", response_model=SnapshotRangeResponse)
+async def snapshot_range(
+    days: int = Query(default=20, ge=1, le=90),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> SnapshotRangeResponse:
+    return await lmv_snapshot_service.get_snapshot_range(session, days)
 
 
 @router.get("/availability", response_model=DateAvailabilityResponse)

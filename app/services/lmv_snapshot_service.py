@@ -9,7 +9,9 @@ from app.repositories.lmv_snapshot_repo import (
     bulk_upsert_lmv_snapshot_values,
     delete_values_for_date,
     fetch_latest_trade_date,
+    fetch_recent_trade_dates,
     fetch_snapshot_rows,
+    fetch_snapshot_rows_for_dates,
     fetch_trade_dates_in_range,
 )
 from app.repositories.metric_repo import bulk_get_or_create_metrics
@@ -18,12 +20,17 @@ from app.schemas.historic import (
     DateAvailability,
     DateAvailabilityResponse,
     DeleteDayResponse,
+    SnapshotRangeResponse,
     SnapshotResponse,
     StockSnapshot,
 )
 from app.schemas.lmv_snapshot import LmvSnapshotUploadRequest, LmvSnapshotUploadResponse
 
 _MAX_DATE_RANGE_DAYS = 366
+# A full snapshot pivot is ~78 metrics/stock across the whole universe (vs
+# historic's ~7) — capped much lower than _MAX_DATE_RANGE_DAYS so a formula
+# stats request over N days stays a reasonably-sized payload.
+_MAX_SNAPSHOT_RANGE_DAYS = 90
 
 
 def _infer_data_type(value: float | str | None) -> str:
@@ -107,6 +114,30 @@ async def get_snapshot(session: AsyncSession, trade_date: date | None) -> Snapsh
         return SnapshotResponse(trade_date=date.today(), stocks=[])
     rows = await fetch_snapshot_rows(session, resolved_date)
     return _pivot_snapshot(resolved_date, rows)
+
+
+async def get_snapshot_range(session: AsyncSession, days: int) -> SnapshotRangeResponse:
+    """The `days` most recent trade dates with any saved snapshot data, each
+    pivoted the same way as get_snapshot — feeds the client's formula-stats
+    feature, which recomputes a strategy's formula per day itself rather
+    than server-side, so this just needs to serve raw historical rows."""
+    if days < 1:
+        raise InvalidDateRangeError("days must be at least 1")
+    if days > _MAX_SNAPSHOT_RANGE_DAYS:
+        raise InvalidDateRangeError(f"days cannot exceed {_MAX_SNAPSHOT_RANGE_DAYS}")
+
+    trade_dates = await fetch_recent_trade_dates(session, days)
+    if not trade_dates:
+        return SnapshotRangeResponse(days=[])
+
+    rows = await fetch_snapshot_rows_for_dates(session, trade_dates)
+    rows_by_date: dict[date, list] = {d: [] for d in trade_dates}
+    for row in rows:
+        rows_by_date[row["trade_date"]].append(row)
+
+    return SnapshotRangeResponse(
+        days=[_pivot_snapshot(d, rows_by_date[d]) for d in trade_dates]
+    )
 
 
 async def get_date_availability(

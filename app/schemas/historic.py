@@ -39,6 +39,10 @@ class SnapshotResponse(BaseModel):
     stocks: list[StockSnapshot]
 
 
+class SnapshotRangeResponse(BaseModel):
+    days: list[SnapshotResponse]
+
+
 class TimeseriesPoint(BaseModel):
     trade_date: date
     value: MetricValue

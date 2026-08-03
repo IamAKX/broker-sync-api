@@ -95,6 +95,45 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     return result.mappings().all()
 
 
+async def fetch_recent_trade_dates(session: AsyncSession, limit: int) -> list[date]:
+    """The `limit` most recent distinct trade_dates with any saved snapshot
+    data, returned oldest-first — naturally skips weekends/holidays/missed
+    days since only dates that actually have rows qualify."""
+    stmt = (
+        select(LmvDailySnapshot.trade_date)
+        .distinct()
+        .order_by(LmvDailySnapshot.trade_date.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return sorted(result.scalars().all())
+
+
+async def fetch_snapshot_rows_for_dates(session: AsyncSession, trade_dates: list[date]):
+    """Same query shape and Core-execution perf rationale as
+    fetch_snapshot_rows, but for a batch of dates at once — feeds the
+    formula-stats range endpoint. trade_date is included in the selected
+    columns (unlike fetch_snapshot_rows, where it's already known by the
+    caller) so the rows can be grouped back into one SnapshotResponse per
+    day afterward."""
+    stmt = (
+        select(
+            Stock.symbol,
+            Stock.display_name,
+            Metric.name.label("metric_name"),
+            LmvDailySnapshot.trade_date,
+            LmvDailySnapshot.value_number,
+            LmvDailySnapshot.value_text,
+        )
+        .join(LmvDailySnapshot.stock)
+        .join(LmvDailySnapshot.metric)
+        .where(LmvDailySnapshot.trade_date.in_(trade_dates))
+    )
+    connection = await session.connection()
+    result = await connection.execute(stmt)
+    return result.mappings().all()
+
+
 async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
     stmt = select(func.max(LmvDailySnapshot.trade_date))
     result = await session.execute(stmt)
