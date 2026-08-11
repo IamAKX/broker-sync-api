@@ -25,6 +25,7 @@ from app.routers import (
     opening_range,
     settings as settings_router,
     strategies,
+    strategy_signals,
 )
 
 configure_logging()
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(opening_range.router)
     app.include_router(notifications.router)
     app.include_router(strategies.router)
+    app.include_router(strategy_signals.router)
     app.include_router(formula_variables.router)
     app.include_router(settings_router.router)
 

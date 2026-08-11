@@ -209,3 +209,80 @@ class UserSetting(TenantBase):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class StrategySignal(TenantBase):
+    """Durable, per-user record of a Strategy Notifications signal (see the
+    client's services/strategy_alerts/engine.py), synced from the desktop
+    client whenever a real notification-worthy event fires — entry, a Target
+    achieved, or a Stop Loss/Trailing Exit stop-out. A "pending" signal
+    (still inside its debounce window, no alert fired yet) is deliberately
+    NEVER synced here — same rationale as the client's own local write-through
+    policy (services/strategy_alerts/state_store.py's docstring): only
+    transitions that actually produced a notification are worth a durable,
+    queryable record.
+
+    id is CLIENT-generated (assigned once, at entry — see engine.py's
+    _fire_entry) rather than server-generated, so the same signal's later
+    Target/Stop-out updates upsert the same row instead of creating a new one
+    each time — mirrors SavedStrategy/FormulaVariable's client-owned-id
+    pattern above.
+
+    Unlike SavedStrategy, deliberately NOT re-derived from strategy_id via a
+    join — strategy_name/direction/sector are captured as of the moment each
+    write happens (denormalized), so a signal's historical record stays
+    accurate and independently readable even after its originating strategy
+    is renamed or deleted (see docs/strategy-notifications.md: "deleting a
+    strategy... leaves already-resolved history... alone").
+
+    event_time is a single, always-populated "when" column (resolved_at if
+    resolved, else entry_time — mirrors the client's screens/live_alerts.py
+    _sort_key) that both the default sort and the Date/Time range filter key
+    off of, rather than requiring every caller to COALESCE two columns.
+
+    metrics/risk_reward are JSONB for the same reason as SavedStrategy's
+    columns/row_filter: always read/written as one whole object, never
+    queried at the SQL level, so normalizing them into their own tables would
+    only add join overhead for zero query benefit.
+    """
+
+    __tablename__ = "StrategySignal"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    strategy_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    strategy_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    sector: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    direction: Mapped[str] = mapped_column(String(10), nullable=False)   # 'BUY' | 'SELL'
+    # 'open' | 'stopped_out' | 'all_targets_achieved' — deliberately not
+    # 'pending' (see class docstring); "open" covers both a just-fired entry
+    # and every tick's running update until it resolves.
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    entry_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    entry_price: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    running_high: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
+    running_low: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
+    score: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
+    risk_reward: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    event_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        # Serves the base list query: WHERE user_id = ? ORDER BY event_time DESC
+        Index("ix_strategy_signal_user_event", "user_id", "event_time"),
+        # One index per filterable column below — combined with the above via
+        # Postgres bitmap AND scans for the combined-filter case; a per-user
+        # table stays small enough (hundreds/thousands of rows) that this
+        # doesn't need a bespoke composite index per filter combination.
+        Index("ix_strategy_signal_strategy", "strategy_id"),
+        Index("ix_strategy_signal_symbol", "symbol"),
+        Index("ix_strategy_signal_sector", "sector"),
+        Index("ix_strategy_signal_status", "status"),
+        Index("ix_strategy_signal_direction", "direction"),
+    )
