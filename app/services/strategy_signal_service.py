@@ -3,6 +3,7 @@ from math import ceil
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import InvalidPageSizeError
 from app.models.tenant import StrategySignal
 from app.repositories.strategy_signal_repo import (
     delete_all_for_user,
@@ -10,6 +11,7 @@ from app.repositories.strategy_signal_repo import (
     upsert_for_user,
 )
 from app.schemas.strategy_signals import (
+    _ALLOWED_PAGE_SIZES,
     StrategySignalListResponse,
     StrategySignalResponse,
     StrategySignalUpsertRequest,
@@ -87,6 +89,10 @@ async def list_signals(
     page: int = 1,
     page_size: int = 25,
 ) -> StrategySignalListResponse:
+    if page_size not in _ALLOWED_PAGE_SIZES:
+        raise InvalidPageSizeError(
+            f"page_size must be one of {', '.join(str(s) for s in _ALLOWED_PAGE_SIZES)}"
+        )
     rows, total = await fetch_page_for_user(
         session,
         uuid.UUID(user_id),

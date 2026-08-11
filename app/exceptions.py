@@ -85,6 +85,11 @@ class FormulaVariableNotFoundError(AppError):
     code = "formula_variable_not_found"
 
 
+class InvalidPageSizeError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "invalid_page_size"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

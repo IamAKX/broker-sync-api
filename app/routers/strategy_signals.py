@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +37,14 @@ async def list_signals(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     page: int = 1,
-    page_size: Literal[25, 50, 100] = 25,
+    # int, not Literal[25, 50, 100] — FastAPI/Pydantic does NOT coerce a
+    # query string ("25") into an int Literal member the way it does for a
+    # plain int, so a bare Literal[int, ...] annotation here 422s on every
+    # value including the objectively valid ones (confirmed live: the client
+    # sent page_size=25 exactly, and this 422'd anyway). Validated against
+    # the same allowed set manually in the service layer instead — see
+    # strategy_signal_service.list_signals.
+    page_size: int = 25,
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
 ) -> StrategySignalListResponse:

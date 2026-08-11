@@ -28,6 +28,69 @@ def test_tenant_metadata_registers_strategy_signal_model():
     }
 
 
+# ── Real HTTP round trip for page_size ───────────────────────────────────
+# Regression coverage for a bug that reached production: every other test in
+# this file calls repo/service functions directly with native Python types,
+# which never exercises FastAPI's actual query-STRING parsing. A bare
+# `Literal[25, 50, 100]` (int members) query-param annotation does NOT
+# coerce the incoming string "25" into the int literal 25 in this FastAPI/
+# Pydantic version — it 422s on every value, including objectively valid
+# ones (confirmed live: the client sent page_size=25 exactly, and the
+# server still rejected it). Fixed by accepting a plain `int` at the FastAPI
+# layer and validating against the allowed set manually in the service
+# layer instead (see strategy_signal_service.list_signals). These tests go
+# through a real TestClient HTTP request specifically so this class of bug
+# can't silently reappear.
+
+def _test_app_with_fake_auth():
+    import uuid as _uuid
+    from fastapi import FastAPI
+    from app.core.deps import CurrentUser, get_current_user
+    from app.db.deps import get_tenant_db
+    from app.exceptions import register_exception_handlers
+    from app.routers.strategy_signals import router
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=str(_uuid.uuid4()), tenant_id=str(_uuid.uuid4()), schema_name="test_dss",
+        role="owner", name="Test", email="test@example.com", phone_number="0000000000",
+    )
+    app.dependency_overrides[get_tenant_db] = lambda: None
+    return app
+
+
+def test_list_signals_accepts_every_allowed_page_size_over_real_http(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.schemas.strategy_signals import StrategySignalListResponse
+    from app.services import strategy_signal_service
+
+    async def fake_list_signals(session, user_id, **kwargs):
+        return StrategySignalListResponse(
+            items=[], total=0, page=kwargs.get("page", 1),
+            page_size=kwargs.get("page_size", 25), total_pages=0,
+        )
+
+    monkeypatch.setattr(strategy_signal_service, "list_signals", fake_list_signals)
+
+    client = TestClient(_test_app_with_fake_auth())
+    for size in (25, 50, 100):
+        response = client.get("/strategy-signals", params={"page": 1, "page_size": size})
+        assert response.status_code == 200, response.json()
+        assert response.json()["page_size"] == size
+
+
+def test_list_signals_rejects_invalid_page_size_over_real_http():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(_test_app_with_fake_auth())
+    response = client.get("/strategy-signals", params={"page_size": 30})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_page_size"
+
+
 def test_strategy_signal_routes_registered():
     from app.main import create_app
 
@@ -254,6 +317,16 @@ def test_upsert_signal_falls_back_to_entry_time_when_still_open(monkeypatch):
     )
 
     assert captured["event_time"] == entry_time
+
+
+def test_list_signals_rejects_invalid_page_size_at_service_layer():
+    from app.exceptions import InvalidPageSizeError
+    from app.services import strategy_signal_service
+
+    with pytest.raises(InvalidPageSizeError):
+        asyncio.run(
+            strategy_signal_service.list_signals(_FakeSession(), str(uuid.uuid4()), page_size=30)
+        )
 
 
 def test_list_signals_computes_total_pages(monkeypatch):
