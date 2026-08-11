@@ -3,7 +3,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from sqlalchemy import Connection, text
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import TenantBase
@@ -49,6 +49,17 @@ async def next_candidate_name(central_session: AsyncSession, name: str) -> Async
             yield candidate
 
 
+
+# Both are "someone else already created (or is concurrently creating) this
+# table — nothing left for me to do" signals, just surfaced as two different
+# exception shapes depending on the exact race (see _create_all_tables_
+# individually's docstring): Postgres's own "already exists" DDL error
+# (SQLSTATE 42P07, DuplicateTable — a ProgrammingError) vs. a concurrent
+# CREATE TABLE's catalog-level race on pg_type's own name/namespace index
+# (a UniqueViolation, surfaced as an IntegrityError, not a ProgrammingError).
+_BENIGN_CREATE_TABLE_RACE_MARKERS = ("already exists", "duplicate key value")
+
+
 def _create_all_tables_individually(connection: Connection) -> None:
     """create_all(), one table at a time, each in its own SAVEPOINT.
 
@@ -65,18 +76,32 @@ def _create_all_tables_individually(connection: Connection) -> None:
     long-since-provisioned tenant schema despite create_all "succeeding" (its
     error was caught and swallowed) on every request.
 
-    Creating tables one at a time under a SAVEPOINT sidesteps this: an
-    "already exists" on one table only rolls back to that table's own
-    savepoint (via `nested.rollback()`), leaving the outer transaction — and
-    every other table's creation — unaffected.
+    Creating tables one at a time under a SAVEPOINT sidesteps this: a benign
+    failure on one table (see _BENIGN_CREATE_TABLE_RACE_MARKERS) only rolls
+    back to that table's own savepoint (via `nested.rollback()`), leaving the
+    outer transaction — and every other table's creation — unaffected.
+
+    A second, differently-shaped race showed up the first time a genuinely
+    NEW table (StrategySignal) was added to an already-long-provisioned
+    schema: ensure_tenant_schema_tables's in-memory _provisioned_schemas
+    guard is a plain set check, not a lock, so several concurrent requests
+    hitting the freshly-restarted process at once can all see the schema as
+    "not yet provisioned" and all attempt `CREATE TABLE StrategySignal`
+    together. Postgres itself serializes that via a catalog insert for the
+    table's own row type — the losing statement(s) get a UniqueViolation on
+    pg_type's name/namespace index (an IntegrityError), not the
+    DuplicateTable ProgrammingError a genuinely-already-existing table
+    raises. Caught the same way: another concurrent request already created
+    it, so there's nothing left for this one to do.
     """
     for table in TenantBase.metadata.sorted_tables:
         nested = connection.begin_nested()
         try:
             TenantBase.metadata.create_all(connection, tables=[table], checkfirst=True)
-        except ProgrammingError as exc:
+        except (ProgrammingError, IntegrityError) as exc:
             nested.rollback()
-            if "already exists" not in str(exc).lower():
+            msg = str(exc).lower()
+            if not any(marker in msg for marker in _BENIGN_CREATE_TABLE_RACE_MARKERS):
                 raise
         else:
             nested.commit()

@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.db.base import TenantBase
 from app.models import tenant as tenant_models  # noqa: F401
@@ -68,6 +68,53 @@ def test_one_table_already_existing_does_not_block_later_tables(monkeypatch):
     ]
 
 
+def _concurrent_create_race_error():
+    # The real shape seen in production the first time a genuinely NEW table
+    # (StrategySignal) was added to an already-provisioned schema: two
+    # concurrent requests both saw the schema as unprovisioned and both
+    # issued CREATE TABLE for it at once — Postgres's own catalog insert for
+    # the table's row type serializes that, and the loser gets a
+    # UniqueViolation on pg_type's name/namespace index (an IntegrityError),
+    # NOT the DuplicateTable ProgrammingError a genuinely-already-existing
+    # table raises.
+    return IntegrityError(
+        "CREATE TABLE ...", {},
+        Exception(
+            'duplicate key value violates unique constraint "pg_type_typname_nsp_index"\n'
+            "DETAIL:  Key (typname, typnamespace)=(StrategySignal, 17391) already exists."
+        ),
+    )
+
+
+def test_concurrent_create_table_race_does_not_block_later_tables(monkeypatch):
+    """Regression test for the transient 500s seen on the first request burst
+    after StrategySignal was deployed: this race must be treated the same as
+    an ordinary "already exists" skip, not propagate and abort the request."""
+    from app.services import provisioning_service
+
+    tables = TenantBase.metadata.sorted_tables
+    assert len(tables) >= 2, "need at least 2 tenant tables for this test to be meaningful"
+    racing_table = tables[0].name
+
+    attempted = []
+
+    def fake_create_all(metadata_bind, tables=None, checkfirst=True):
+        table = tables[0]
+        attempted.append(table.name)
+        if table.name == racing_table:
+            raise _concurrent_create_race_error()
+
+    monkeypatch.setattr(TenantBase.metadata, "create_all", fake_create_all)
+
+    conn = _FakeConnection()
+    provisioning_service._create_all_tables_individually(conn)   # must not raise
+
+    assert attempted == [t.name for t in tables]
+    assert conn.nested_log == [
+        "rollback" if name == racing_table else "commit" for name in attempted
+    ]
+
+
 def test_non_already_exists_error_still_raises(monkeypatch):
     from app.services import provisioning_service
 
@@ -83,6 +130,27 @@ def test_non_already_exists_error_still_raises(monkeypatch):
 
     conn = _FakeConnection()
     with pytest.raises(ProgrammingError, match="permission denied"):
+        provisioning_service._create_all_tables_individually(conn)
+
+
+def test_unrelated_integrity_error_still_raises(monkeypatch):
+    """The widened except (ProgrammingError, IntegrityError) must not swallow
+    a genuinely unrelated IntegrityError — only the specific concurrent-create
+    race signature (see _BENIGN_CREATE_TABLE_RACE_MARKERS) is benign."""
+    from app.services import provisioning_service
+
+    tables = TenantBase.metadata.sorted_tables
+    failing_table = tables[0].name
+
+    def fake_create_all(metadata_bind, tables=None, checkfirst=True):
+        table = tables[0]
+        if table.name == failing_table:
+            raise IntegrityError("CREATE TABLE ...", {}, Exception("not null constraint violated"))
+
+    monkeypatch.setattr(TenantBase.metadata, "create_all", fake_create_all)
+
+    conn = _FakeConnection()
+    with pytest.raises(IntegrityError, match="not null constraint violated"):
         provisioning_service._create_all_tables_individually(conn)
 
     # The failing table's savepoint was rolled back before the error propagated.
