@@ -20,6 +20,7 @@ from app.routers import (
     formula_variables,
     historic,
     holidays,
+    inception,
     lmv_snapshot,
     notifications,
     opening_range,
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(strategy_signals.router)
     app.include_router(formula_variables.router)
     app.include_router(settings_router.router)
+    app.include_router(inception.router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
