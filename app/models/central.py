@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, DECIMAL, ForeignKey, Index, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import CentralBase
@@ -56,3 +56,65 @@ class RefreshToken(CentralBase):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+
+class Instrument(CentralBase):
+    """Common/inception market data: one row per tradable symbol, shared across every
+    tenant — not duplicated per tenant, since a symbol's identity is the same fact for
+    everyone. Lives in `public` alongside Tenant/User rather than a separate schema, at
+    the user's direction. No exchange dimension (deliberately dropped, see project
+    notes) — flat, symbol-keyed. `underlying_symbol` strips a continuous-future's _I/_II
+    suffix (e.g. 'ADANIENT_I' -> 'ADANIENT'); null for symbols that aren't a roll series.
+    """
+
+    __tablename__ = "Instrument"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    underlying_symbol: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    instrument_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'EQ' | 'FUT_CONTINUOUS' | ...
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    first_traded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_traded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        Index("ix_instrument_underlying", "underlying_symbol"),
+    )
+
+
+class TradingCalendar(CentralBase):
+    """Which dates actually traded — lets 'previous day'/'previous week' logic
+    distinguish a real gap from a holiday. Populated from observed EodBar dates on
+    ingestion, not a hand-maintained NSE holiday list (see project notes)."""
+
+    __tablename__ = "TradingCalendar"
+
+    calendar_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    is_trading_day: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class EodBar(CentralBase):
+    """The canonical raw daily bar — exactly what the vendor sends, upserted, never
+    silently recalculated. Everything derived (technical indicators, period rollups)
+    is reconstructable from this table alone. PK (instrument_id, trade_date) is what
+    makes a re-upload for an already-loaded date overwrite in place instead of
+    duplicating — see the ingestion upsert in the loader script.
+    """
+
+    __tablename__ = "EodBar"
+
+    instrument_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("Instrument.id"), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    open: Mapped[float] = mapped_column(DECIMAL(14, 4), nullable=False)
+    high: Mapped[float] = mapped_column(DECIMAL(14, 4), nullable=False)
+    low: Mapped[float] = mapped_column(DECIMAL(14, 4), nullable=False)
+    close: Mapped[float] = mapped_column(DECIMAL(14, 4), nullable=False)
+    volume: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    open_interest: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # null for cash equities
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="eqldata")
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_eod_bar_date", "trade_date"),
+    )

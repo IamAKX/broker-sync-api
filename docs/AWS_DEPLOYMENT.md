@@ -46,7 +46,7 @@ export DB_INSTANCE_ID="brokersync-dev-db"
 export DB_NAME="brokersync"
 export DB_USER="brokersync_admin"
 export DB_PASSWORD="BrokerSync-2024-Secure_DevPass123"
-export EC2_KEY_NAME="brokersync-dev-key"
+export EC2_KEY_NAME="brokersync-dev-key-v2"  # rotated from "brokersync-dev-key"; the .pem lives in the sibling aws/ folder, not this repo
 export EC2_INSTANCE_NAME="brokersync-dev-api"
 export JWT_SECRET="62726f6b657273796e632d6465762d7365637265742d6b65793332"
 ```
