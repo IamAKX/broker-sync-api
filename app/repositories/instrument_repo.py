@@ -79,19 +79,31 @@ async def get_bars_for_date(session: AsyncSession, trade_date: date, instrument_
     return result.mappings().all()
 
 
-async def get_full_history(session: AsyncSession, instrument_id: int):
-    """Every EodBar row for one instrument, oldest first — the formula engine
-    walks this in a single forward pass per instrument (see
-    services.inception_formula_engine).
+async def get_bars_in_range(
+    session: AsyncSession, date_from: date, date_to: date, symbols: list[str] | None = None,
+):
+    """Every EodBar row in [date_from, date_to] across one or more
+    instruments, joined to each row's symbol — feeds GET /inception/bars,
+    the bulk raw-bar feed the desktop client backfills/syncs its local
+    Group A/B computation from (see services.inception_service.get_bars).
+    Ordered by (trade_date, instrument_id) so a chunked caller can resume
+    from the last row's date. Uses ix_eod_bar_date. *symbols*, when given,
+    restricts to those exact symbols (e.g. a single-instrument re-sync)
+    rather than the default full canonical universe.
     """
     stmt = (
         select(
-            EodBar.trade_date, EodBar.open, EodBar.high, EodBar.low, EodBar.close,
+            Instrument.symbol,
+            EodBar.trade_date,
+            EodBar.open, EodBar.high, EodBar.low, EodBar.close,
             EodBar.volume, EodBar.open_interest,
         )
-        .where(EodBar.instrument_id == instrument_id)
-        .order_by(EodBar.trade_date)
+        .join(Instrument, Instrument.id == EodBar.instrument_id)
+        .where(EodBar.trade_date >= date_from, EodBar.trade_date <= date_to)
+        .order_by(EodBar.trade_date, EodBar.instrument_id)
     )
+    if symbols is not None:
+        stmt = stmt.where(Instrument.symbol.in_(symbols))
     result = await session.execute(stmt)
     return result.mappings().all()
 

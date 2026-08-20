@@ -1,5 +1,4 @@
 from datetime import date
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -28,43 +27,24 @@ class InstrumentListResponse(BaseModel):
     instruments: list[InstrumentSummary]
 
 
-class ColumnInfoResponse(BaseModel):
-    code: str
-    description: str
-    group: str  # 'raw' | 'derived'
-    stateful_gap: bool
+# ── Raw bars (bulk feed the desktop client syncs its local Group A/B
+# computation from — see app.services.inception_service.get_bars) ───────────
 
-
-class ColumnListResponse(BaseModel):
-    columns: list[ColumnInfoResponse]
-
-
-class InstrumentSnapshotRow(BaseModel):
-    instrument_id: int
+class BarRow(BaseModel):
     symbol: str
-    underlying_symbol: str | None
-    values: dict[str, Any]  # field/column name -> number | str | None
-
-
-class InceptionSnapshotResponse(BaseModel):
     trade_date: date
-    rows: list[InstrumentSnapshotRow]
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    open_interest: int | None
 
 
-class InceptionHmvResponse(BaseModel):
+class BarsResponse(BaseModel):
     date_from: date
     date_to: date
-    as_of_date: date | None
-    rows: list[InstrumentSnapshotRow]
-
-
-class RecomputeRequest(BaseModel):
-    symbol: str | None = None  # None = every canonical instrument
-
-
-class RecomputeResponse(BaseModel):
-    instruments_processed: int
-    rows_upserted: int
+    rows: list[BarRow]
 
 
 # ── Strategy CRUD (mirrors app/schemas/strategies.py) ────────────────────────

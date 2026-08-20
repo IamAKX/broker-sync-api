@@ -2,7 +2,6 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -286,54 +285,6 @@ class StrategySignal(TenantBase):
         Index("ix_strategy_signal_sector", "sector"),
         Index("ix_strategy_signal_status", "status"),
         Index("ix_strategy_signal_direction", "direction"),
-    )
-
-
-class InceptionDerivedValue(TenantBase):
-    """Group A/B computed columns (see app.services.inception_columns) for
-    the shared, central Instrument/EodBar dataset (app.models.central) — one
-    row per (instrument, trade_date, metric), same EAV shape as
-    HistoricalStockValue/LmvDailySnapshot above, reusing the same Metric
-    registry (a derived column's name, e.g. "52WH" or "DAY UF GUP 1 LOW",
-    becomes one Metric row exactly like an LMV column name does).
-
-    Tenant-scoped even though the raw EodBar data it's computed from is
-    central/shared — because the Group B gap-tracking columns depend on a
-    per-tenant configurable threshold (see UserSetting key
-    "inception_gap_threshold_pct"), two tenants with different thresholds
-    would legitimately get different values for the same instrument/date, so
-    this can't be a shared table the way EodBar is.
-
-    instrument_id deliberately has NO ForeignKey to the central Instrument
-    table: tenant sessions run with a schema_translate_map that rewrites
-    every unqualified table reference (including a bare "Instrument.id" FK
-    target) to the tenant's own schema, where Instrument doesn't exist —
-    only `public` (central) has it. Referential integrity here is
-    maintained at the application layer (app.services.inception_service only
-    ever writes instrument_ids it just read from the central repo) instead.
-    """
-
-    __tablename__ = "InceptionDerivedValue"
-
-    instrument_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    metric_id: Mapped[int] = mapped_column(Integer, ForeignKey("Metric.id"), primary_key=True)
-    value_number: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
-    value_text: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
-    )
-
-    metric: Mapped["Metric"] = relationship()
-
-    __table_args__ = (
-        # Serves "every computed column for one instrument, e.g. for the
-        # Strategy Builder field-value lookup on one row".
-        Index("ix_idv_instrument_date", "instrument_id", "trade_date"),
-        # Serves "one metric across time for one instrument" (HMV period grid).
-        Index("ix_idv_instrument_metric_date", "instrument_id", "metric_id", "trade_date"),
-        # Serves "every instrument's value for one date" (View by Date / snapshot).
-        Index("ix_idv_date", "trade_date"),
     )
 
 
