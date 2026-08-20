@@ -121,6 +121,86 @@ def gap_metric_names(gap_code: str) -> list[str]:
     return [f"{gap_code} {suffix}" for suffix in GAP_METRIC_SUFFIXES]
 
 
+# ── Display formulas ─────────────────────────────────────────────────────────
+#
+# Human-readable, NOT interpreted: same precedent as the desktop client's
+# services/formula_tokens.py BUILTIN_FORMULAS for LMV's 56 built-in codes —
+# "a formula shown here is a faithful description of what the engine computes
+# — but the engine itself is NOT driven by these tokens". These strings exist
+# so a user looking at e.g. "52WH" in Strategy Builder sees what it actually
+# means (MAX_OF([HIGH], LAST 52 WEEKS)) instead of the tautological-looking
+# pass-through "[52WH]" the column's real (executed) formula still is — the
+# actual numbers always come from inception_formula_engine.py's tested code,
+# never from parsing this string. See app/services/inception_service.py's
+# _build_rows for where the real values come from, and
+# inception_formula_engine.required_lookback_start for the companion "does
+# the user's selected HMV date range even cover what this needs" check.
+DISPLAY_FORMULA: dict[str, str] = {
+    "P.OPEN": "AT([OPEN], PREVIOUS_TRADING_DAY)",
+    "P.HIGH": "AT([HIGH], PREVIOUS_TRADING_DAY)",
+    "P.LOW": "AT([LOW], PREVIOUS_TRADING_DAY)",
+    "P.CLOSE": "AT([CLOSE], PREVIOUS_TRADING_DAY)",
+    "P.QTY": "AT([VOL], PREVIOUS_TRADING_DAY)",
+    "P.OI": "AT([OPENINT], PREVIOUS_TRADING_DAY)",
+    "% CHG PDC AND OPEN": "([OPEN] - AT([CLOSE], PREVIOUS_TRADING_DAY)) / AT([CLOSE], PREVIOUS_TRADING_DAY) * 100",
+    "% CHG PWC AND OPEN": "([OPEN] - AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_WEEK)) / AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_WEEK) * 100",
+    "DAY % CHANGE": "([CLOSE] - AT([CLOSE], PREVIOUS_TRADING_DAY)) / AT([CLOSE], PREVIOUS_TRADING_DAY) * 100",
+    "52WH": "MAX_OF([HIGH], LAST_52_WEEKS)",
+    "52WL": "MIN_OF([LOW], LAST_52_WEEKS)",
+    "ATH": "MAX_OF([HIGH], ALL_TIME)",
+    "ATL": "MIN_OF([LOW], ALL_TIME)",
+    "CQH": "MAX_OF([HIGH], CURRENT_QUARTER)",
+    "CQO": "AT([OPEN], FIRST_TRADING_DAY_OF_QUARTER)",
+    "CQL": "MIN_OF([LOW], CURRENT_QUARTER)",
+    "PQH": "MAX_OF([HIGH], PREVIOUS_QUARTER)",
+    "PQO": "AT([OPEN], FIRST_TRADING_DAY_OF_PREVIOUS_QUARTER)",
+    "PQL": "MIN_OF([LOW], PREVIOUS_QUARTER)",
+    "PQC": "AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_QUARTER)",
+    "QT": "MAX(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_QUARTER), AT([CLOSE], LAST_TRADING_DAY_OF_QUARTER_BEFORE_PREVIOUS))",
+    "QB": "MIN(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_QUARTER), AT([CLOSE], LAST_TRADING_DAY_OF_QUARTER_BEFORE_PREVIOUS))",
+    "CHYH": "MAX_OF([HIGH], CURRENT_HALF_YEAR)",
+    "CHYO": "AT([OPEN], FIRST_TRADING_DAY_OF_HALF_YEAR)",
+    "CHYL": "MIN_OF([LOW], CURRENT_HALF_YEAR)",
+    "PHYH": "MAX_OF([HIGH], PREVIOUS_HALF_YEAR)",
+    "PHYO": "AT([OPEN], FIRST_TRADING_DAY_OF_PREVIOUS_HALF_YEAR)",
+    "PHYL": "MIN_OF([LOW], PREVIOUS_HALF_YEAR)",
+    "PHYC": "AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_HALF_YEAR)",
+    "HYT": "MAX(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_HALF_YEAR), AT([CLOSE], LAST_TRADING_DAY_OF_HALF_YEAR_BEFORE_PREVIOUS))",
+    "HYB": "MIN(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_HALF_YEAR), AT([CLOSE], LAST_TRADING_DAY_OF_HALF_YEAR_BEFORE_PREVIOUS))",
+    "CYH": "MAX_OF([HIGH], CURRENT_YEAR)",
+    "CYO": "AT([OPEN], FIRST_TRADING_DAY_OF_YEAR)",
+    "CYL": "MIN_OF([LOW], CURRENT_YEAR)",
+    "PYH": "MAX_OF([HIGH], PREVIOUS_YEAR)",
+    "PYO": "AT([OPEN], FIRST_TRADING_DAY_OF_PREVIOUS_YEAR)",
+    "PYL": "MIN_OF([LOW], PREVIOUS_YEAR)",
+    "PYC": "AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_YEAR)",
+    "YT": "MAX(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_YEAR), AT([CLOSE], LAST_TRADING_DAY_OF_YEAR_BEFORE_PREVIOUS))",
+    "YB": "MIN(AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_YEAR), AT([CLOSE], LAST_TRADING_DAY_OF_YEAR_BEFORE_PREVIOUS))",
+    "CFYH": "MAX_OF([HIGH], CURRENT_FINANCIAL_YEAR)",
+    "CFYO": "AT([OPEN], FIRST_TRADING_DAY_OF_FINANCIAL_YEAR)",
+    "CFYL": "MIN_OF([LOW], CURRENT_FINANCIAL_YEAR)",
+    "PFYH": "MAX_OF([HIGH], PREVIOUS_FINANCIAL_YEAR)",
+    "PFYO": "AT([OPEN], FIRST_TRADING_DAY_OF_PREVIOUS_FINANCIAL_YEAR)",
+    "PFYL": "MIN_OF([LOW], PREVIOUS_FINANCIAL_YEAR)",
+    "PFYC": "AT([CLOSE], LAST_TRADING_DAY_OF_PREVIOUS_FINANCIAL_YEAR)",
+}
+
+_GAP_DIR_LABEL = {"GUP": "UP", "GDN": "DOWN"}
+_GAP_FILL_LABEL = {"UF": "UNFILLED", "FD": "FILLED"}
+_GAP_PERIOD_LABEL = {"DAY": "DAILY", "WEEK": "WEEKLY"}
+
+
+def _gap_display_formula(gap_code: str) -> str:
+    """"DAY UF GUP 1" -> "GAP_AREA(UP, UNFILLED, RANK 1, DAILY)" — parsed
+    from the code itself rather than hand-listed, so it can't drift out of
+    sync with GROUP_B's own key format."""
+    period, fill, direction, rank = gap_code.split(" ")
+    return (
+        f"GAP_AREA({_GAP_DIR_LABEL[direction]}, {_GAP_FILL_LABEL[fill]}, "
+        f"RANK {rank}, {_GAP_PERIOD_LABEL[period]})"
+    )
+
+
 def all_derived_codes() -> list[str]:
     return list(GROUP_A) + list(GROUP_B)
 
@@ -139,13 +219,15 @@ def is_stateful_gap(code: str) -> bool:
 
 
 class ColumnInfo:
-    __slots__ = ("code", "description", "group", "stateful_gap")
+    __slots__ = ("code", "description", "group", "stateful_gap", "formula_display")
 
-    def __init__(self, code: str, description: str, group: str, stateful_gap: bool):
+    def __init__(self, code: str, description: str, group: str, stateful_gap: bool,
+                 formula_display: str | None = None):
         self.code = code
         self.description = description
         self.group = group
         self.stateful_gap = stateful_gap
+        self.formula_display = formula_display
 
 
 def column_catalogue() -> list[ColumnInfo]:
@@ -159,11 +241,23 @@ def column_catalogue() -> list[ColumnInfo]:
     anyone who wants the full range or the date it opened (see
     services.inception_service._build_rows' gap-alias step, and
     gap_metric_names below).
+
+    formula_display carries the human-readable (not interpreted — see that
+    module-level docstring above DISPLAY_FORMULA) formula string for every
+    Group A/B code; None for raw fields (nothing to derive) and for a Group
+    B code's own LOW/HIGH/DATE sub-fields (the description belongs to the
+    bare code; repeating it three times added nothing).
     """
     out = [ColumnInfo(f, f"Raw uploaded field ({f})", "raw", False) for f in RAW_FIELDS]
-    out += [ColumnInfo(code, desc, "derived", False) for code, desc in GROUP_A.items()]
+    out += [
+        ColumnInfo(code, desc, "derived", False, formula_display=DISPLAY_FORMULA.get(code))
+        for code, desc in GROUP_A.items()
+    ]
     for code, desc in GROUP_B.items():
-        out.append(ColumnInfo(code, f"{desc} — alias for {code} HIGH", "derived", True))
+        out.append(ColumnInfo(
+            code, f"{desc} — alias for {code} HIGH", "derived", True,
+            formula_display=_gap_display_formula(code),
+        ))
         for name in gap_metric_names(code):
             out.append(ColumnInfo(name, desc, "derived", True))
     return out

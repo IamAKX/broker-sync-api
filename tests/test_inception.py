@@ -78,6 +78,21 @@ def test_column_catalogue_flags_gap_columns():
     assert by_code["DAY UF GUP 1"].group == "derived"
 
 
+def test_column_catalogue_formula_display_present_for_derived_none_for_raw():
+    """formula_display is a real (non-interpreted — see DISPLAY_FORMULA's
+    docstring) human-readable formula, not the tautological pass-through
+    the seeded strategy columns execute — None only for raw fields and a
+    gap code's own LOW/HIGH/DATE sub-fields."""
+    from app.services.inception_columns import column_catalogue
+
+    by_code = {c.code: c for c in column_catalogue()}
+    assert by_code["OPEN"].formula_display is None
+    assert by_code["52WH"].formula_display == "MAX_OF([HIGH], LAST_52_WEEKS)"
+    assert by_code["P.OPEN"].formula_display == "AT([OPEN], PREVIOUS_TRADING_DAY)"
+    assert by_code["DAY UF GUP 1"].formula_display == "GAP_AREA(UP, UNFILLED, RANK 1, DAILY)"
+    assert by_code["DAY UF GUP 1 LOW"].formula_display is None
+
+
 def test_column_catalogue_exposes_bare_gap_code_plus_low_high_date():
     """Each Group B gap code is selectable 4 ways: the bare code (aliased to
     HIGH — see inception_service._build_rows) plus its 3 explicit suffixed
@@ -338,27 +353,108 @@ def test_apply_strategy_columns_respects_row_filter_and_var_expansion():
     assert apply_strategy_columns(strategies, weak_row, variables) == {}
 
 
-# ── inception_service: period parsing ───────────────────────────────────────
+# ── inception_formula_engine: required_lookback_start (HMV range gate) ──────
 
-def test_period_bounds_quarter_half_year_financial_year():
-    from app.services.inception_service import _period_bounds
+def test_required_lookback_fixed_buffer_codes():
+    from datetime import timedelta
+    from app.services.inception_formula_engine import required_lookback_start
 
-    assert _period_bounds("year", "2025") == (date(2025, 1, 1), date(2025, 12, 31))
-    assert _period_bounds("quarter", "2025-Q1") == (date(2025, 1, 1), date(2025, 3, 31))
-    assert _period_bounds("quarter", "2025-Q4") == (date(2025, 10, 1), date(2025, 12, 31))
-    assert _period_bounds("half_year", "2025-H1") == (date(2025, 1, 1), date(2025, 6, 30))
-    assert _period_bounds("half_year", "2025-H2") == (date(2025, 7, 1), date(2025, 12, 31))
-    assert _period_bounds("financial_year", "2025") == (date(2025, 4, 1), date(2026, 3, 31))
+    as_of = date(2026, 8, 18)
+    assert required_lookback_start("P.OPEN", as_of) == as_of - timedelta(days=7)
+    assert required_lookback_start("DAY % CHANGE", as_of) == as_of - timedelta(days=7)
+    assert required_lookback_start("% CHG PWC AND OPEN", as_of) == as_of - timedelta(days=14)
+    assert required_lookback_start("52WH", as_of) == as_of - timedelta(days=364)
+    assert required_lookback_start("52WL", as_of) == as_of - timedelta(days=364)
 
 
-def test_period_bounds_rejects_garbage():
-    from app.exceptions import InvalidPeriodError
-    from app.services.inception_service import _period_bounds
+def test_required_lookback_all_time_uses_first_traded_date():
+    from app.services.inception_formula_engine import required_lookback_start
 
-    with pytest.raises(InvalidPeriodError):
-        _period_bounds("quarter", "not-a-period")
-    with pytest.raises(InvalidPeriodError):
-        _period_bounds("quarter", "2025-Q9")
+    as_of = date(2026, 8, 18)
+    assert required_lookback_start("ATH", as_of, first_traded_date=date(2022, 1, 28)) == date(2022, 1, 28)
+    # Permissive fallback (ungated) when the caller can't supply it.
+    assert required_lookback_start("ATL", as_of, first_traded_date=None) is None
+
+
+def test_required_lookback_current_period_codes():
+    from app.services.inception_formula_engine import required_lookback_start
+
+    as_of = date(2026, 8, 18)  # Q3 2026, FY2026 (Apr start)
+    assert required_lookback_start("CQO", as_of) == date(2026, 7, 1)
+    assert required_lookback_start("CYO", as_of) == date(2026, 1, 1)
+    assert required_lookback_start("CFYO", as_of) == date(2026, 4, 1)
+    assert required_lookback_start("CHYO", as_of) == date(2026, 7, 1)  # H2 starts Jul 1
+
+
+def test_required_lookback_previous_period_codes():
+    from app.services.inception_formula_engine import required_lookback_start
+
+    as_of = date(2026, 8, 18)  # Q3 2026
+    assert required_lookback_start("PQC", as_of) == date(2026, 4, 1)   # Q2 2026 start
+    assert required_lookback_start("PYC", as_of) == date(2025, 1, 1)   # year 2025 start
+    assert required_lookback_start("PFYC", as_of) == date(2025, 4, 1)  # FY2025 start
+
+
+def test_required_lookback_last_2_periods_codes():
+    from app.services.inception_formula_engine import required_lookback_start
+
+    as_of = date(2026, 8, 18)  # Q3 2026 -> 2 back = Q1 2026
+    assert required_lookback_start("QT", as_of) == date(2026, 1, 1)
+    assert required_lookback_start("QB", as_of) == date(2026, 1, 1)
+    assert required_lookback_start("YT", as_of) == date(2024, 1, 1)   # 2 years back
+
+
+def test_required_lookback_unrecognized_code_is_ungated():
+    from app.services.inception_formula_engine import required_lookback_start
+
+    assert required_lookback_start("OPEN", date(2026, 8, 18)) is None
+    assert required_lookback_start("SOME_UNKNOWN_CODE", date(2026, 8, 18)) is None
+
+
+# ── inception_service: HMV range gate ────────────────────────────────────────
+
+def test_hmv_range_cap_is_generous_enough_for_all_time_lookback():
+    """Regression guard: get_hmv used to share get_availability's tight
+    366-day cap, which made ATH/ATL structurally impossible to ever show
+    (no valid range could span the years of history they need) — caught by
+    a live-data check against real dev-RDS data during this session."""
+    from app.services.inception_service import _MAX_DATE_RANGE_DAYS, _MAX_HMV_RANGE_DAYS
+
+    assert _MAX_HMV_RANGE_DAYS > _MAX_DATE_RANGE_DAYS
+    assert _MAX_HMV_RANGE_DAYS >= 20 * 365  # loaded dataset goes back to 2000
+
+
+def test_apply_range_gate_blanks_52wh_for_a_short_range_but_not_a_long_one():
+    from app.services.inception_service import _apply_range_gate
+
+    as_of = date(2026, 8, 18)
+    bucket_6mo = {"52WH": 7951.0, "OPEN": 100.0}
+    _apply_range_gate(bucket_6mo, None, as_of, date(2026, 2, 18))  # ~6 months
+    assert bucket_6mo["52WH"] is None
+    assert bucket_6mo["OPEN"] == 100.0  # raw fields are never gated
+
+    bucket_13mo = {"52WH": 7951.0}
+    _apply_range_gate(bucket_13mo, None, as_of, date(2025, 7, 18))  # ~13 months
+    assert bucket_13mo["52WH"] == 7951.0
+
+
+def test_apply_range_gate_blanks_gap_slot_opened_before_the_range():
+    from app.services.inception_service import _apply_range_gate
+
+    as_of = date(2026, 8, 18)
+    bucket = {
+        "DAY UF GUP 1": 7384.0, "DAY UF GUP 1 LOW": 7322.0,
+        "DAY UF GUP 1 HIGH": 7384.0, "DAY UF GUP 1 DATE": "2026-07-31",
+    }
+    _apply_range_gate(bucket, None, as_of, date(2026, 8, 1))  # range starts after the gap opened
+    assert bucket["DAY UF GUP 1"] is None
+    assert bucket["DAY UF GUP 1 LOW"] is None
+    assert bucket["DAY UF GUP 1 HIGH"] is None
+    assert bucket["DAY UF GUP 1 DATE"] is None
+
+    bucket2 = dict(bucket, **{"DAY UF GUP 1": 7384.0, "DAY UF GUP 1 LOW": 7322.0, "DAY UF GUP 1 HIGH": 7384.0})
+    _apply_range_gate(bucket2, None, as_of, date(2026, 7, 1))  # range covers the gap's open date
+    assert bucket2["DAY UF GUP 1"] == 7384.0
 
 
 # ── repositories: query construction / canonicalization ──────────────────────

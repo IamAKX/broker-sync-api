@@ -33,6 +33,7 @@ class ColumnInfoResponse(BaseModel):
     description: str
     group: str  # 'raw' | 'derived'
     stateful_gap: bool
+    formula_display: str | None = None
 
 
 class ColumnListResponse(BaseModel):
@@ -51,15 +52,9 @@ class InceptionSnapshotResponse(BaseModel):
     rows: list[InstrumentSnapshotRow]
 
 
-class InceptionHmvRequest(BaseModel):
-    period_type: str = Field(pattern="^(year|quarter|half_year|financial_year)$")
-    period: str = Field(min_length=1, max_length=20)  # e.g. "2025", "2025-Q2", "2025-H1"
-    metrics: list[str] = Field(default_factory=list)  # empty = every Group A/raw column
-
-
 class InceptionHmvResponse(BaseModel):
-    period_type: str
-    period: str
+    date_from: date
+    date_to: date
     as_of_date: date | None
     rows: list[InstrumentSnapshotRow]
 

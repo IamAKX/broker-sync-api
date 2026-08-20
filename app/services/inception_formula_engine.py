@@ -124,6 +124,99 @@ _PREV_KEY_FUNCS = {
 }
 
 
+def _period_start(period_type: str, key) -> date:
+    """Inverse of _KEY_FUNCS — the first calendar date of the period *key*
+    identifies. Used only by required_lookback_start below (the forward
+    pass above never needs this — it just tracks accumulators as it walks
+    bars in order)."""
+    if period_type == "quarter":
+        y, q = key
+        return date(y, (q - 1) * 3 + 1, 1)
+    if period_type == "half_year":
+        y, h = key
+        return date(y, 1 if h == 1 else 7, 1)
+    if period_type == "year":
+        return date(key, 1, 1)
+    if period_type == "fy":
+        return date(key, 4, 1)
+    if period_type == "week":
+        y, w = key
+        return date.fromisocalendar(y, w, 1)
+    raise ValueError(f"unknown period_type {period_type!r}")
+
+
+# ── HMV range gate: "does the user's selected date range cover what this
+# column's formula needs?" ────────────────────────────────────────────────
+#
+# Paired with inception_columns.DISPLAY_FORMULA — same day/week/quarter/
+# half-year/year/FY period vocabulary that formula describes, so a code's
+# lookback requirement is derived from the SAME period-key machinery the
+# forward pass above uses (not a second, hand-maintained mapping that could
+# drift out of sync).
+
+_FIXED_LOOKBACK_DAYS = {
+    "P.OPEN": 7, "P.HIGH": 7, "P.LOW": 7, "P.CLOSE": 7, "P.QTY": 7, "P.OI": 7,
+    "% CHG PDC AND OPEN": 7, "DAY % CHANGE": 7,
+    "% CHG PWC AND OPEN": 14,
+    "52WH": _WEEK_WINDOW_DAYS, "52WL": _WEEK_WINDOW_DAYS,
+}
+
+_CURRENT_PERIOD_CODES = {
+    "CQH": "quarter", "CQO": "quarter", "CQL": "quarter",
+    "CHYH": "half_year", "CHYO": "half_year", "CHYL": "half_year",
+    "CYH": "year", "CYO": "year", "CYL": "year",
+    "CFYH": "fy", "CFYO": "fy", "CFYL": "fy",
+}
+
+# 1 period back — PQH/PQO/PQL/PQC etc. only ever look at the immediately
+# preceding quarter/half-year/year/FY.
+_PREV_PERIOD_CODES = {
+    "PQH": "quarter", "PQO": "quarter", "PQL": "quarter", "PQC": "quarter",
+    "PHYH": "half_year", "PHYO": "half_year", "PHYL": "half_year", "PHYC": "half_year",
+    "PYH": "year", "PYO": "year", "PYL": "year", "PYC": "year",
+    "PFYH": "fy", "PFYO": "fy", "PFYL": "fy", "PFYC": "fy",
+}
+
+# 2 periods back — QT/QB etc. are max/min of PQC over the last 2 periods
+# (see inception_columns.GROUP_A's own descriptions), so they need the
+# period *before* the previous one too.
+_PREV2_PERIOD_CODES = {
+    "QT": "quarter", "QB": "quarter",
+    "HYT": "half_year", "HYB": "half_year",
+    "YT": "year", "YB": "year",
+}
+
+
+def required_lookback_start(code: str, as_of_date: date, first_traded_date: date | None = None) -> date | None:
+    """The earliest `date_from` that makes *code* non-blank when HMV is
+    evaluated as of *as_of_date* — see services.inception_service._build_rows'
+    range gate, the only caller. None means "no requirement" (raw fields,
+    unrecognized codes — never gated) OR, for ATH/ATL specifically, "can't
+    say" when *first_traded_date* isn't supplied (permissive fallback:
+    ungated rather than wrongly always-blank).
+
+    Group B (gap) codes are deliberately NOT handled here — which historical
+    gap (if any) is currently showing is data-dependent, not a fixed window,
+    so the caller checks each gap's own DATE value directly instead.
+    """
+    if code in _FIXED_LOOKBACK_DAYS:
+        return as_of_date - timedelta(days=_FIXED_LOOKBACK_DAYS[code])
+    if code in ("ATH", "ATL"):
+        return first_traded_date
+    if code in _CURRENT_PERIOD_CODES:
+        pt = _CURRENT_PERIOD_CODES[code]
+        return _period_start(pt, _KEY_FUNCS[pt](as_of_date))
+    if code in _PREV_PERIOD_CODES:
+        pt = _PREV_PERIOD_CODES[code]
+        prev_key = _PREV_KEY_FUNCS[pt](_KEY_FUNCS[pt](as_of_date))
+        return _period_start(pt, prev_key)
+    if code in _PREV2_PERIOD_CODES:
+        pt = _PREV2_PERIOD_CODES[code]
+        two_back_key = _PREV_KEY_FUNCS[pt](_PREV_KEY_FUNCS[pt](_KEY_FUNCS[pt](as_of_date)))
+        return _period_start(pt, two_back_key)
+    return None
+
+
 class _PeriodAgg:
     __slots__ = ("open", "high", "low", "close", "first_date", "last_date")
 

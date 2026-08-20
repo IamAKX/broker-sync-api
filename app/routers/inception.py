@@ -64,15 +64,15 @@ async def snapshot(
 
 @router.get("/hmv", response_model=InceptionHmvResponse)
 async def hmv(
-    period_type: str,
-    period: str,
+    date_from: date = Query(alias="from"),
+    date_to: date = Query(alias="to"),
     metrics: list[str] = Query(default_factory=list),
     current_user: CurrentUser = Depends(get_current_user),
     central_session: AsyncSession = Depends(get_central_db),
     tenant_session: AsyncSession = Depends(get_tenant_db),
 ) -> InceptionHmvResponse:
     return await inception_service.get_hmv(
-        central_session, tenant_session, current_user.user_id, period_type, period, metrics
+        central_session, tenant_session, current_user.user_id, date_from, date_to, metrics
     )
 
 
