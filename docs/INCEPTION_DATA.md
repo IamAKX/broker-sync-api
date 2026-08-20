@@ -97,17 +97,20 @@ have not been implemented.
 |---|---|
 | Source | `inception-stock-data/eod_data/` — Equal Solution (`eqldata`) vendor CSVs |
 | Segment | `NFOFUT` only (NSE F&O continuous futures) — no equity (`NSEEQ`) data yet |
-| Files loaded | 157 monthly CSVs (`YYYY/MM/NFOFUT.csv`) |
-| `EodBar` rows | 769,119 |
+| Files loaded | 315 monthly CSVs (`YYYY/MM/NFOFUT.csv`) |
+| `EodBar` rows | 1,057,802 |
 | `Instrument` rows | 426 (214 `_I` current-month + 212 `_II` next-month continuous series) |
-| `TradingCalendar` rows | 3,221 distinct trading days |
-| Date range | 2013-08-12 → 2026-08-18 |
+| `TradingCalendar` rows | 6,507 distinct trading days |
+| Date range | 2000-06-12 → 2026-08-18 |
 | `instrument_type` | 100% `FUT_CONTINUOUS` (no other type loaded yet) |
 
 Every `Instrument.symbol` is a continuous roll series (`_I`/`_II`), not a dated expiry
-contract (`ABB26AUGFUT`-style) — confirmed with the vendor that `_I` carries history
-back to 2000; this account's actual data starts 2013-08-12 (an account/plan limit, not
-a data-availability one).
+contract (`ABB26AUGFUT`-style). The vendor confirmed `_I` carries history back to 2000
+when futures were introduced on NSE — an earlier account/plan limit initially capped
+this account's actual data at 2013 (previously 2016), but the source folder now goes
+all the way back to 2000-06-12, matching the vendor's stated depth in full. No new
+instruments appeared in the older (2000–2013) months — the 426-symbol universe was
+already complete from the later data.
 
 ---
 
@@ -146,7 +149,10 @@ re-running the loader, only added to.
 **After all files:** one `UPDATE ... FROM (SELECT MIN/MAX(trade_date) ...)` sets
 `first_traded_date`/`last_traded_date` on every touched instrument.
 
-Total run time: ~355 seconds for all 769k rows.
+Total run time: ~130 seconds for the full 315-file, 1.06M-row load (re-run after the
+source folder grew from 157 to 315 files — the already-loaded 157 months upserted as
+a no-op, only the new 2000–2013 months added new rows, which is why a full re-run of a
+now-larger dataset still finished faster than the original 157-file run).
 
 ---
 
