@@ -17,7 +17,6 @@ def test_inception_routes_registered():
         "/inception/snapshot", "/inception/hmv", "/inception/recompute",
         "/inception/strategies", "/inception/strategies/{strategy_id}",
         "/inception/formula-variables", "/inception/formula-variables/{variable_id}",
-        "/inception/compile-check",
     ]:
         assert expected in paths
 
@@ -76,21 +75,6 @@ def test_column_catalogue_flags_gap_columns():
     assert by_code["OPEN"].group == "raw"
     assert by_code["DAY UF GUP 1"].stateful_gap is True
     assert by_code["DAY UF GUP 1"].group == "derived"
-
-
-def test_column_catalogue_formula_display_present_for_derived_none_for_raw():
-    """formula_display is a real (non-interpreted — see DISPLAY_FORMULA's
-    docstring) human-readable formula, not the tautological pass-through
-    the seeded strategy columns execute — None only for raw fields and a
-    gap code's own LOW/HIGH/DATE sub-fields."""
-    from app.services.inception_columns import column_catalogue
-
-    by_code = {c.code: c for c in column_catalogue()}
-    assert by_code["OPEN"].formula_display is None
-    assert by_code["52WH"].formula_display == "MAX_OF([HIGH], LAST_52_WEEKS)"
-    assert by_code["P.OPEN"].formula_display == "AT([OPEN], PREVIOUS_TRADING_DAY)"
-    assert by_code["DAY UF GUP 1"].formula_display == "GAP_AREA(UP, UNFILLED, RANK 1, DAILY)"
-    assert by_code["DAY UF GUP 1 LOW"].formula_display is None
 
 
 def test_column_catalogue_exposes_bare_gap_code_plus_low_high_date():
@@ -272,85 +256,6 @@ def test_compute_group_b_gap_down_uses_mirror_condition():
     low, high, opened_on = result[d2]["DAY UF GDN 1"]
     assert (low, high, opened_on) == (94, 100, d2)
     assert result[d2]["DAY UF GUP 1"] is None
-
-
-# ── inception_strategy_engine ────────────────────────────────────────────────
-
-def test_evaluate_arithmetic_and_functions():
-    from app.services.inception_strategy_engine import evaluate
-
-    tokens = [
-        {"type": "func", "value": "MAX("}, {"type": "col", "value": "HIGH"},
-        {"type": "op", "value": ","}, {"type": "col", "value": "CLOSE"}, {"type": "paren", "value": ")"},
-    ]
-    # NOTE: comma is passed straight through as an "op" token value the same
-    # way the client encodes function-argument separators.
-    row = {"HIGH": 110.0, "CLOSE": 105.0}
-    assert evaluate(tokens, row) == 110.0
-
-
-def test_evaluate_returns_none_for_missing_column():
-    from app.services.inception_strategy_engine import evaluate
-
-    tokens = [{"type": "col", "value": "52WH"}, {"type": "op", "value": "+"}, {"type": "num", "value": "1"}]
-    assert evaluate(tokens, {}) is None  # None + 1 -> None literal -> TypeError -> caught -> None
-
-
-def test_evaluate_condition_comparison_and_boolean_ops():
-    from app.services.inception_strategy_engine import evaluate_condition
-
-    tokens = [
-        {"type": "col", "value": "CLOSE"}, {"type": "op", "value": ">"}, {"type": "col", "value": "P.CLOSE"},
-        {"type": "op", "value": "AND"},
-        {"type": "col", "value": "DAY % CHANGE"}, {"type": "op", "value": ">"}, {"type": "num", "value": "1"},
-    ]
-    assert evaluate_condition(tokens, {"CLOSE": 110, "P.CLOSE": 100, "DAY % CHANGE": 10}) is True
-    assert evaluate_condition(tokens, {"CLOSE": 90, "P.CLOSE": 100, "DAY % CHANGE": 10}) is False
-    assert evaluate_condition([], {"CLOSE": 1}) is True  # empty filter = always true
-
-
-def test_compile_check_uses_dummy_values_for_raw_fields():
-    from app.services.inception_strategy_engine import compile_check
-
-    tokens = [
-        {"type": "col", "value": "OPEN"}, {"type": "op", "value": "+"}, {"type": "col", "value": "OPENINT"},
-    ]
-    ok, error = compile_check(tokens)
-    assert ok is True
-    assert error is None
-
-
-def test_compile_check_reports_division_by_zero():
-    from app.services.inception_strategy_engine import compile_check
-
-    tokens = [
-        {"type": "num", "value": "1"}, {"type": "op", "value": "/"}, {"type": "num", "value": "0"},
-    ]
-    ok, error = compile_check(tokens)
-    assert ok is False
-    assert "zero" in error.lower()
-
-
-def test_apply_strategy_columns_respects_row_filter_and_var_expansion():
-    from app.services.inception_strategy_engine import apply_strategy_columns
-
-    strategies = [{
-        "id": "s1", "name": "Strong Day",
-        "row_filter": [
-            {"type": "col", "value": "DAY % CHANGE"}, {"type": "op", "value": ">"}, {"type": "num", "value": "5"},
-        ],
-        "columns": [{
-            "name": "Adjusted Close",
-            "formula": [{"type": "col", "value": "CLOSE"}, {"type": "op", "value": "+"}, {"type": "var", "value": "Bump"}],
-        }],
-    }]
-    variables = {"Bump": [{"type": "num", "value": "2"}]}
-
-    strong_row = {"DAY % CHANGE": 10, "CLOSE": 100}
-    weak_row = {"DAY % CHANGE": 1, "CLOSE": 100}
-
-    assert apply_strategy_columns(strategies, strong_row, variables) == {"Adjusted Close": 102.0}
-    assert apply_strategy_columns(strategies, weak_row, variables) == {}
 
 
 # ── inception_formula_engine: required_lookback_start (HMV range gate) ──────

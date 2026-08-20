@@ -146,13 +146,10 @@ def _period_start(period_type: str, key) -> date:
 
 
 # ── HMV range gate: "does the user's selected date range cover what this
-# column's formula needs?" ────────────────────────────────────────────────
+# column needs?" ─────────────────────────────────────────────────────────
 #
-# Paired with inception_columns.DISPLAY_FORMULA — same day/week/quarter/
-# half-year/year/FY period vocabulary that formula describes, so a code's
-# lookback requirement is derived from the SAME period-key machinery the
-# forward pass above uses (not a second, hand-maintained mapping that could
-# drift out of sync).
+# Uses the SAME period-key machinery the forward pass above uses (not a
+# second, hand-maintained mapping that could drift out of sync).
 
 _FIXED_LOOKBACK_DAYS = {
     "P.OPEN": 7, "P.HIGH": 7, "P.LOW": 7, "P.CLOSE": 7, "P.QTY": 7, "P.OI": 7,

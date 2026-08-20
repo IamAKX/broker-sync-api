@@ -33,7 +33,6 @@ class ColumnInfoResponse(BaseModel):
     description: str
     group: str  # 'raw' | 'derived'
     stateful_gap: bool
-    formula_display: str | None = None
 
 
 class ColumnListResponse(BaseModel):
@@ -106,12 +105,3 @@ class InceptionFormulaVariableResponse(BaseModel):
 
 class InceptionFormulaVariableListResponse(BaseModel):
     variables: list[InceptionFormulaVariableResponse]
-
-
-class CompileCheckRequest(BaseModel):
-    formula: list = Field(default_factory=list)
-
-
-class CompileCheckResponse(BaseModel):
-    ok: bool
-    error: str | None = None

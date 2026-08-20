@@ -21,7 +21,6 @@ from app.repositories.settings_repo import fetch_setting, upsert_setting
 from app.schemas.inception import (
     ColumnInfoResponse,
     ColumnListResponse,
-    CompileCheckResponse,
     InceptionAvailabilityResponse,
     InceptionDateAvailability,
     InceptionFormulaVariableListResponse,
@@ -37,7 +36,6 @@ from app.schemas.inception import (
 )
 from app.services import inception_columns
 from app.services.inception_formula_engine import compute_group_a, compute_group_b, required_lookback_start
-from app.services.inception_strategy_engine import apply_strategy_columns, compile_check as _compile_check
 
 _MAX_DATE_RANGE_DAYS = 366
 # HMV's range is only ever used for a set-membership trading-dates lookup and
@@ -85,10 +83,7 @@ async def list_instruments(central_session: AsyncSession) -> InstrumentListRespo
 
 def list_columns() -> ColumnListResponse:
     return ColumnListResponse(columns=[
-        ColumnInfoResponse(
-            code=c.code, description=c.description, group=c.group,
-            stateful_gap=c.stateful_gap, formula_display=c.formula_display,
-        )
+        ColumnInfoResponse(code=c.code, description=c.description, group=c.group, stateful_gap=c.stateful_gap)
         for c in inception_columns.column_catalogue()
     ])
 
@@ -187,14 +182,13 @@ async def get_snapshot(
     instrument_ids = [i.id for i in instruments]
     # No date_from — View by Date has no range concept, a single day always
     # has its full history behind it, so nothing is ever range-gated here.
-    rows = await _build_rows(central_session, tenant_session, user_id, trade_date, instruments, instrument_ids)
+    rows = await _build_rows(central_session, tenant_session, trade_date, instruments, instrument_ids)
     return InceptionSnapshotResponse(trade_date=trade_date, rows=rows)
 
 
 async def _build_rows(
     central_session: AsyncSession,
     tenant_session: AsyncSession,
-    user_id: str,
     trade_date: date,
     instruments: list[Instrument],
     instrument_ids: list[int],
@@ -231,24 +225,24 @@ async def _build_rows(
 
     # HMV's range gate (see get_hmv) — blank out any column whose formula
     # needs more history than [date_from, trade_date] actually covers.
-    # Runs before strategy columns compute, so a custom column referencing a
-    # blanked field naturally comes back None too (evaluate() already treats
-    # a missing/None field that way — no extra plumbing needed there).
     if date_from is not None:
         for iid, bucket in values_by_instrument.items():
             _apply_range_gate(bucket, by_id.get(iid), trade_date, date_from)
 
-    strategies, variables_by_name = await _active_strategies_and_variables(tenant_session, user_id)
-
+    # Strategy columns are deliberately NOT computed here — evaluated
+    # entirely on the desktop client instead (services/strategy_engine.py's
+    # apply_strategies, same engine LMV's own live/historical views use),
+    # against exactly the base (raw + Group A/B) values this function
+    # returns. See services/inception_strategy_store.py (client repo) for
+    # the rationale — this endpoint returns only base values now.
     out = []
     for iid, base_values in values_by_instrument.items():
         instrument = by_id.get(iid)
         if instrument is None:
             continue
-        extra = apply_strategy_columns(strategies, base_values, variables_by_name)
         out.append(InstrumentSnapshotRow(
             instrument_id=iid, symbol=instrument.symbol, underlying_symbol=instrument.underlying_symbol,
-            values={**base_values, **extra},
+            values=base_values,
         ))
     return out
 
@@ -289,17 +283,6 @@ def _apply_range_gate(bucket: dict, instrument: Instrument | None, as_of_date: d
             bucket[f"{code} DATE"] = None
 
 
-async def _active_strategies_and_variables(tenant_session: AsyncSession, user_id: str):
-    strategy_rows = await istrat_repo.fetch_all_for_user(tenant_session, uuid.UUID(user_id))
-    strategies = [
-        {"id": str(s.id), "name": s.name, "columns": s.columns, "row_filter": s.row_filter}
-        for s in strategy_rows if s.active
-    ]
-    variable_rows = await ifv_repo.fetch_all_for_user(tenant_session, uuid.UUID(user_id))
-    variables_by_name = {v.name: v.formula for v in variable_rows}
-    return strategies, variables_by_name
-
-
 # ── HMV (date-range grid) ─────────────────────────────────────────────────────
 
 async def get_hmv(
@@ -326,7 +309,7 @@ async def get_hmv(
     # formula needs more history than [date_from, as_of_date] covers — see
     # _apply_range_gate.
     rows = await _build_rows(
-        central_session, tenant_session, user_id, as_of_date, instruments, instrument_ids, date_from=date_from,
+        central_session, tenant_session, as_of_date, instruments, instrument_ids, date_from=date_from,
     )
 
     if metrics:
@@ -397,10 +380,3 @@ async def delete_variable(session: AsyncSession, user_id: str, variable_id: str)
     if not deleted:
         raise FormulaVariableNotFoundError("Inception formula variable not found")
     await session.commit()
-
-
-async def check_formula(session: AsyncSession, user_id: str, formula: list) -> CompileCheckResponse:
-    variable_rows = await ifv_repo.fetch_all_for_user(session, uuid.UUID(user_id))
-    variables_by_name = {v.name: v.formula for v in variable_rows}
-    ok, error = _compile_check(formula, variables_by_name)
-    return CompileCheckResponse(ok=ok, error=error)

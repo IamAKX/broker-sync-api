@@ -351,8 +351,11 @@ class InceptionStrategy(TenantBase):
 
     Fields reference Inception's own field universe (raw OPEN/HIGH/LOW/
     CLOSE/VOL/OPENINT + Group A/B derived columns + InceptionFormulaVariable
-    names) instead of LMV column names — evaluated server-side by
-    app.services.inception_strategy_engine, not by the desktop client.
+    names) instead of LMV column names. This table is storage/sync only —
+    columns/row_filter are evaluated entirely on the desktop client (see
+    that repo's services/inception_strategy_store.py and
+    services/strategy_engine.py, the same local engine LMV's own Strategy
+    Builder uses), never server-side.
     """
 
     __tablename__ = "InceptionStrategy"

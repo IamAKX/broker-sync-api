@@ -7,8 +7,6 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_central_db, get_tenant_db
 from app.schemas.inception import (
     ColumnListResponse,
-    CompileCheckRequest,
-    CompileCheckResponse,
     InceptionAvailabilityResponse,
     InceptionFormulaVariableListResponse,
     InceptionFormulaVariableResponse,
@@ -149,12 +147,3 @@ async def delete_variable(
     session: AsyncSession = Depends(get_tenant_db),
 ) -> None:
     await inception_service.delete_variable(session, current_user.user_id, variable_id)
-
-
-@router.post("/compile-check", response_model=CompileCheckResponse)
-async def compile_check(
-    payload: CompileCheckRequest,
-    current_user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_tenant_db),
-) -> CompileCheckResponse:
-    return await inception_service.check_formula(session, current_user.user_id, payload.formula)
