@@ -205,6 +205,17 @@ async def _build_rows(
         # which dominates latency on a wide payload like this one.
         bucket[r["metric_name"]] = _f(r["value_number"]) if r["value_number"] is not None else r["value_text"]
 
+    # Bare Group B code (e.g. "DAY UF GUP 1") aliases its HIGH bound — the
+    # single number most formulas want — so it's directly selectable as a
+    # field, matching inception_columns.column_catalogue's bare-code entry.
+    # LOW/DATE stay reachable under their own suffixed names for anyone who
+    # wants the full range or the date it opened.
+    for bucket in values_by_instrument.values():
+        for code in inception_columns.GROUP_B:
+            high_key = f"{code} HIGH"
+            if high_key in bucket:
+                bucket[code] = bucket[high_key]
+
     strategies, variables_by_name = await _active_strategies_and_variables(tenant_session, user_id)
 
     out = []

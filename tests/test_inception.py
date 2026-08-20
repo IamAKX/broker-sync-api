@@ -78,6 +78,23 @@ def test_column_catalogue_flags_gap_columns():
     assert by_code["DAY UF GUP 1"].group == "derived"
 
 
+def test_column_catalogue_exposes_bare_gap_code_plus_low_high_date():
+    """Each Group B gap code is selectable 4 ways: the bare code (aliased to
+    HIGH — see inception_service._build_rows) plus its 3 explicit suffixed
+    sub-fields — see the "gap field shape" decision in inception_columns.
+    column_catalogue's docstring."""
+    from app.services.inception_columns import GROUP_A, GROUP_B, RAW_FIELDS, column_catalogue
+
+    catalogue = column_catalogue()
+    codes = {c.code for c in catalogue}
+    assert len(catalogue) == len(RAW_FIELDS) + len(GROUP_A) + len(GROUP_B) * 4
+    for code in GROUP_B:
+        assert code in codes
+        assert f"{code} LOW" in codes
+        assert f"{code} HIGH" in codes
+        assert f"{code} DATE" in codes
+
+
 # ── inception_formula_engine: Group A ────────────────────────────────────────
 
 def _bar(d, o, h, low, c, vol=1000, oi=500):

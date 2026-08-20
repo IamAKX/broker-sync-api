@@ -150,9 +150,20 @@ class ColumnInfo:
 
 def column_catalogue() -> list[ColumnInfo]:
     """Full catalogue for GET /inception/columns — raw fields first (group
-    'raw'), then Group A ('derived'), then Group B ('derived', stateful_gap=True).
+    'raw'), then Group A ('derived'), then Group B ('derived',
+    stateful_gap=True).
+
+    Each Group B code appears FOUR times: the bare code itself (e.g. "DAY UF
+    GUP 1"), aliased server-side to its HIGH bound — the single number most
+    formulas want — plus its three explicit LOW/HIGH/DATE sub-fields for
+    anyone who wants the full range or the date it opened (see
+    services.inception_service._build_rows' gap-alias step, and
+    gap_metric_names below).
     """
     out = [ColumnInfo(f, f"Raw uploaded field ({f})", "raw", False) for f in RAW_FIELDS]
     out += [ColumnInfo(code, desc, "derived", False) for code, desc in GROUP_A.items()]
-    out += [ColumnInfo(code, desc, "derived", True) for code, desc in GROUP_B.items()]
+    for code, desc in GROUP_B.items():
+        out.append(ColumnInfo(code, f"{desc} — alias for {code} HIGH", "derived", True))
+        for name in gap_metric_names(code):
+            out.append(ColumnInfo(name, desc, "derived", True))
     return out
