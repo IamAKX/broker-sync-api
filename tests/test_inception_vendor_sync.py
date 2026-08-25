@@ -240,24 +240,38 @@ def test_update_instrument_date_bounds_noop_on_empty_list():
     asyncio.run(update_instrument_date_bounds(_FakeSession(), []))  # must not raise
 
 
-def test_update_instrument_date_bounds_disables_session_sync():
-    """Regression for a real prod 500: SQLAlchemy refuses an executemany-
-    style bulk UPDATE with a per-row bindparam WHERE unless
-    synchronize_session is explicitly disabled (InvalidRequestError
-    otherwise) — see this function's own comment for why None is safe."""
+def test_update_instrument_date_bounds_executes_on_core_connection():
+    """Regression for two real prod 500s in a row: update(<mapped class>)
+    executed via session.execute() with a list of param dicts ALWAYS routes
+    through SQLAlchemy's ORM bulk-persistence machinery, no matter what
+    execution_options or WHERE clause it carries — which then insists on
+    its own "bulk UPDATE by Primary Key" dict-key convention and raises
+    InvalidRequestError otherwise (a synchronize_session=None fix alone,
+    tried first, wasn't enough — see this function's own comment for the
+    full story). Only session.connection().execute() (Core, no ORM
+    interpretation at all) actually works for a bindparam-WHERE
+    executemany UPDATE like this one."""
     from app.repositories.instrument_repo import update_instrument_date_bounds
 
     captured = {}
 
-    class _FakeSession:
+    class _FakeConnection:
         async def execute(self, stmt, params=None):
-            captured["options"] = stmt.get_execution_options()
+            captured["params"] = params
+
+    class _FakeSession:
+        async def connection(self):
+            return _FakeConnection()
+
+        async def execute(self, stmt, params=None):
+            raise AssertionError("must not call session.execute() directly — see docstring")
 
     asyncio.run(update_instrument_date_bounds(
         _FakeSession(), [{"id": 1, "first_traded_date": date(2026, 1, 1), "last_traded_date": date(2026, 1, 2)}],
     ))
-    assert captured["options"].get("synchronize_session") is None
-    assert "synchronize_session" in captured["options"]  # actually set, not just absent
+    assert captured["params"] == [
+        {"_id": 1, "first_traded_date": date(2026, 1, 1), "last_traded_date": date(2026, 1, 2)},
+    ]
 
 
 # ── app.services.inception_vendor_sync_service: pure helpers ────────────────

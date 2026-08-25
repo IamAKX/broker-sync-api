@@ -228,17 +228,22 @@ async def update_instrument_date_bounds(session: AsyncSession, bounds: list[dict
         update(Instrument)
         .where(Instrument.id == bindparam("_id"))
         .values(first_traded_date=bindparam("first_traded_date"), last_traded_date=bindparam("last_traded_date"))
-        # Required for an executemany-style bulk UPDATE with a per-row
-        # bindparam WHERE clause — SQLAlchemy's default ORM
-        # synchronize_session strategy can't evaluate a different WHERE
-        # condition per param set and raises InvalidRequestError otherwise.
-        # None is safe here: nothing after this call reads the in-session
-        # Instrument objects' attributes again (the function just commits
-        # and returns a response built from plain values already captured).
-        .execution_options(synchronize_session=None)
     )
     params = [
         {"_id": b["id"], "first_traded_date": b["first_traded_date"], "last_traded_date": b["last_traded_date"]}
         for b in bounds
     ]
-    await session.execute(stmt, params)
+    # Executed on the underlying Core connection, not the ORM session — see
+    # historical_value_repo.fetch_snapshot_rows's own comment for the same
+    # pattern. Required here for a different reason than that one: ANY
+    # update(<mapped class>) executed via session.execute() with a list of
+    # param dicts always routes through SQLAlchemy's ORM bulk-persistence
+    # machinery (orm/persistence.py), regardless of an explicit WHERE
+    # bindparam clause — which then insists on its own "bulk UPDATE by
+    # Primary Key" convention (a literal "id"-named key per dict) and
+    # raises InvalidRequestError otherwise. connection.execute() is a plain
+    # Core executemany UPDATE — no ORM interpretation, no identity-map
+    # synchronization to opt out of either (nothing after this reads the
+    # in-session Instrument objects again).
+    connection = await session.connection()
+    await connection.execute(stmt, params)
