@@ -228,6 +228,14 @@ async def update_instrument_date_bounds(session: AsyncSession, bounds: list[dict
         update(Instrument)
         .where(Instrument.id == bindparam("_id"))
         .values(first_traded_date=bindparam("first_traded_date"), last_traded_date=bindparam("last_traded_date"))
+        # Required for an executemany-style bulk UPDATE with a per-row
+        # bindparam WHERE clause — SQLAlchemy's default ORM
+        # synchronize_session strategy can't evaluate a different WHERE
+        # condition per param set and raises InvalidRequestError otherwise.
+        # None is safe here: nothing after this call reads the in-session
+        # Instrument objects' attributes again (the function just commits
+        # and returns a response built from plain values already captured).
+        .execution_options(synchronize_session=None)
     )
     params = [
         {"_id": b["id"], "first_traded_date": b["first_traded_date"], "last_traded_date": b["last_traded_date"]}

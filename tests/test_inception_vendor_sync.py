@@ -240,6 +240,26 @@ def test_update_instrument_date_bounds_noop_on_empty_list():
     asyncio.run(update_instrument_date_bounds(_FakeSession(), []))  # must not raise
 
 
+def test_update_instrument_date_bounds_disables_session_sync():
+    """Regression for a real prod 500: SQLAlchemy refuses an executemany-
+    style bulk UPDATE with a per-row bindparam WHERE unless
+    synchronize_session is explicitly disabled (InvalidRequestError
+    otherwise) — see this function's own comment for why None is safe."""
+    from app.repositories.instrument_repo import update_instrument_date_bounds
+
+    captured = {}
+
+    class _FakeSession:
+        async def execute(self, stmt, params=None):
+            captured["options"] = stmt.get_execution_options()
+
+    asyncio.run(update_instrument_date_bounds(
+        _FakeSession(), [{"id": 1, "first_traded_date": date(2026, 1, 1), "last_traded_date": date(2026, 1, 2)}],
+    ))
+    assert captured["options"].get("synchronize_session") is None
+    assert "synchronize_session" in captured["options"]  # actually set, not just absent
+
+
 # ── app.services.inception_vendor_sync_service: pure helpers ────────────────
 
 def test_continuous_futures_filters_and_strips_prefix():
