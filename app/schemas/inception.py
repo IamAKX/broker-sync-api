@@ -85,3 +85,17 @@ class InceptionFormulaVariableResponse(BaseModel):
 
 class InceptionFormulaVariableListResponse(BaseModel):
     variables: list[InceptionFormulaVariableResponse]
+
+
+# ── Vendor sync (app/services/inception_vendor_sync_service.py — the
+# "Fetch from Equal Solution" button) ─────────────────────────────────────
+
+class VendorSyncResponse(BaseModel):
+    status: str  # "ok" | "already_up_to_date"
+    exchange: str
+    date_from: date
+    date_to: date
+    last_available_before: date | None
+    last_available_after: date | None
+    instruments_added: int
+    bars_written: int

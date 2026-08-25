@@ -75,6 +75,39 @@ class EmailDeliveryError(AppError):
     code = "email_delivery_failed"
 
 
+class VendorNotConfiguredError(AppError):
+    """Settings.eqldata_email/eqldata_password are blank — the "Fetch from
+    Equal Solution" button (app/services/inception_vendor_sync_service.py)
+    was clicked in an environment that hasn't set them up (see .env.example).
+    """
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    code = "vendor_not_configured"
+
+
+class VendorAuthError(AppError):
+    """Equal Solution rejected the configured email/password."""
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "vendor_auth_failed"
+
+
+class VendorApiError(AppError):
+    """Equal Solution's API returned an error (network failure, unexpected
+    response shape, or a rate/quota limit — see detail for which)."""
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "vendor_api_failed"
+
+
+class VendorInitialSyncRequiredError(AppError):
+    """The central EodBar table is completely empty — the "Fetch from Equal
+    Solution" button only does small incremental top-ups (last available
+    date -> today) synchronously within one request; a from-scratch
+    multi-decade historical load needs the offline, resumable
+    inception-stock-data/eod_backfill.py + load_eod_data.py process
+    instead (see docs/INCEPTION_DATA.md)."""
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "vendor_initial_sync_required"
+
+
 class StrategyNotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "strategy_not_found"

@@ -15,8 +15,9 @@ from app.schemas.inception import (
     InceptionStrategyResponse,
     InceptionStrategyUpsertRequest,
     InstrumentListResponse,
+    VendorSyncResponse,
 )
-from app.services import inception_service
+from app.services import inception_service, inception_vendor_sync_service
 
 router = APIRouter(prefix="/inception", tags=["inception"])
 
@@ -47,6 +48,19 @@ async def bars(
     central_session: AsyncSession = Depends(get_central_db),
 ) -> BarsResponse:
     return await inception_service.get_bars(central_session, date_from, date_to, symbols or None)
+
+
+@router.post("/vendor-sync", response_model=VendorSyncResponse)
+async def vendor_sync(
+    # Authenticated (unlike the plain reads above) — this mutates the
+    # shared central dataset and calls a paid, quota-limited third-party
+    # vendor account, so an anonymous trigger isn't appropriate even though
+    # EodBar/Instrument themselves have no per-tenant ownership. See
+    # app/services/inception_vendor_sync_service.py.
+    current_user: CurrentUser = Depends(get_current_user),
+    central_session: AsyncSession = Depends(get_central_db),
+) -> VendorSyncResponse:
+    return await inception_vendor_sync_service.sync_nfofut_from_vendor(central_session)
 
 
 # ── Strategy CRUD (tenant-scoped, storage/sync only — evaluated entirely on

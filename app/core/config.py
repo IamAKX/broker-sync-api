@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_from_name: str = "Broker Sync"
 
+    # Equal Solution (eqldata) vendor account — server-side only, never sent
+    # to or accepted from a client (see app/services/inception_vendor_sync_
+    # service.py's "Fetch from Equal Solution" feature, screens/
+    # inception_settings.py's desktop button). Optional (empty default), not
+    # required like sql_password/smtp_*, so an environment that hasn't set
+    # these up yet (existing deployments, most local dev, CI) still starts
+    # normally — the vendor-sync endpoint itself raises a clear
+    # VendorNotConfiguredError if a user clicks the button without them set,
+    # rather than the whole app failing to boot.
+    eqldata_email: str = ""
+    eqldata_password: str = ""
+    eqldata_base_url: str = "https://api.equalsolution.net"
+
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"

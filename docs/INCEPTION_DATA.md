@@ -182,8 +182,10 @@ now-larger dataset still finished faster than the original 157-file run).
 - **No derived/formula layer.** 52-week high, gaps, quarter rollups, etc. — none of
   that exists yet. Scoped as tenant-side tables per the design discussion, not started.
 - **`display_name` is empty** for every instrument — not populated by this loader.
-- **Not wired into the API.** No router/service/repository reads from these tables yet
-  — they exist in the database only.
+- **Wired into the API since.** This section (and the "Not wired in" framing) is a
+  point-in-time record of the initial load — `GET /inception/availability`,
+  `/instruments`, `/bars` (app/routers/inception.py) read these tables now, and
+  `POST /inception/vendor-sync` (§7a below) writes to them.
 
 ---
 
@@ -202,6 +204,32 @@ The script currently hardcodes the source path
 (`/Users/akash/Projects/inception-stock-data/eod_data`) and only globs `NFOFUT.csv`
 files — extending it to other exchange segments (`NSEEQ`, `NFOOPTSTK`, ...) means
 widening that glob and deciding the right `instrument_type` per segment.
+
+## 7a. Day-to-day top-ups: `POST /inception/vendor-sync`
+
+The manual §7 process above is for the initial, from-scratch historical load (or a
+full re-load) — slow, offline, resumable-over-hours by design, matching the sheer
+size of a decades-deep backfill. Once that's done once, keeping the dataset current
+day-to-day doesn't need any of that: `POST /inception/vendor-sync`
+(app/services/inception_vendor_sync_service.py) does a small incremental top-up
+synchronously, in one request:
+
+1. `MAX(EodBar.trade_date)` — "the last day data is available".
+2. Fetches everything NFOFUT has published since then, through today, straight
+   from Equal Solution (auth via `EQLDATA_EMAIL`/`EQLDATA_PASSWORD`/
+   `EQLDATA_BASE_URL` in this app's own env config — see `.env.example` — never a
+   client-supplied credential; the desktop button that triggers this
+   (Inception > Data & Settings > "Fetch from Equal Solution" in the
+   broker-file-sync repo) sends no username/password/exchange at all).
+3. Upserts straight into `Instrument`/`EodBar`/`TradingCalendar` — same ON
+   CONFLICT convention as §4's loader.
+
+Raises a clear error (422) instead of attempting a decades-long synchronous fetch
+if `EodBar` is completely empty — that case still needs the §7 process first. No
+background-job infrastructure exists in this backend, so this genuinely blocks the
+request for however long the vendor calls take; expected to be fast (usually a
+single day's worth of data, comfortably inside the vendor's 500-symbol/366-day caps)
+since it only ever fetches the gap since the last successful run.
 
 ---
 
