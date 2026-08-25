@@ -103,7 +103,15 @@ def fetch_eod_range_rows(
 
     Raises VendorRateLimitError (carrying retry_after_seconds when the
     vendor provides one) on a 429, VendorApiError on anything else
-    (including a malformed/unexpected ZIP).
+    (including a malformed/unexpected ZIP) — EXCEPT a 404, which the
+    vendor uses to mean "nothing published for this range yet" (e.g. an
+    incremental fetch for today, requested before today's EOD batch has
+    run) rather than a real error — same as a 200 with an empty CSV, so
+    this returns [] for it instead of raising. Confirmed against a real
+    prod response: 404 body {"message": "Data not available"} for a
+    request whose date range had genuinely nothing new (the immediately
+    preceding request, seconds earlier, for an older range, had
+    succeeded normally).
     """
     url = base_url.rstrip("/") + "/client/download_his_EOD_range"
     payload = {"auth_token": token, "instruments": instruments, "from_date": from_date, "to_date": to_date}
@@ -115,6 +123,8 @@ def fetch_eod_range_rows(
     except requests.RequestException as exc:
         raise VendorApiError(f"Could not reach Equal Solution: {exc}") from exc
 
+    if response.status_code == 404:
+        return []
     if response.status_code == 429:
         body = _safe_json(response)
         raise VendorRateLimitError(

@@ -129,6 +129,19 @@ def test_fetch_eod_range_rows_empty_content_returns_empty_list(monkeypatch):
     assert eqldata_client.fetch_eod_range_rows("tok", [], "2026-08-18", "2026-08-18", "base") == []
 
 
+def test_fetch_eod_range_rows_returns_empty_list_on_404(monkeypatch):
+    """Real prod behavior confirmed via server logs: the vendor returns 404
+    (not an empty 200) for a range with nothing published yet — treated
+    as "no data", not a failure."""
+    from app.services import eqldata_client
+
+    monkeypatch.setattr(
+        eqldata_client.requests, "post",
+        lambda *a, **kw: _FakeResponse(404, {"message": "Data not available"}),
+    )
+    assert eqldata_client.fetch_eod_range_rows("tok", ["NFOFUT:ABB_I"], "2026-08-25", "2026-08-25", "base") == []
+
+
 def test_fetch_eod_range_rows_raises_rate_limit_with_retry_after(monkeypatch):
     from app.services import eqldata_client
     from app.services.eqldata_client import VendorRateLimitError
