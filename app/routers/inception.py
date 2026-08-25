@@ -15,6 +15,7 @@ from app.schemas.inception import (
     InceptionStrategyResponse,
     InceptionStrategyUpsertRequest,
     InstrumentListResponse,
+    VendorSyncRequest,
     VendorSyncResponse,
 )
 from app.services import inception_service, inception_vendor_sync_service
@@ -52,6 +53,10 @@ async def bars(
 
 @router.post("/vendor-sync", response_model=VendorSyncResponse)
 async def vendor_sync(
+    # payload's fields are all optional — see VendorSyncRequest's own
+    # docstring for the fallback-to-server-env behavior when one is
+    # omitted/blank.
+    payload: VendorSyncRequest = VendorSyncRequest(),
     # Authenticated (unlike the plain reads above) — this mutates the
     # shared central dataset and calls a paid, quota-limited third-party
     # vendor account, so an anonymous trigger isn't appropriate even though
@@ -60,7 +65,9 @@ async def vendor_sync(
     current_user: CurrentUser = Depends(get_current_user),
     central_session: AsyncSession = Depends(get_central_db),
 ) -> VendorSyncResponse:
-    return await inception_vendor_sync_service.sync_nfofut_from_vendor(central_session)
+    return await inception_vendor_sync_service.sync_nfofut_from_vendor(
+        central_session, email=payload.email, password=payload.password, exchange=payload.exchange,
+    )
 
 
 # ── Strategy CRUD (tenant-scoped, storage/sync only — evaluated entirely on

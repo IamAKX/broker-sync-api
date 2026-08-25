@@ -387,6 +387,52 @@ def test_sync_raises_when_vendor_not_configured(monkeypatch):
         asyncio.run(svc.sync_nfofut_from_vendor(_FakeSession()))
 
 
+def test_sync_uses_request_credentials_over_server_env(monkeypatch):
+    """The desktop's Username/Password/Exchange fields — see
+    VendorSyncRequest's docstring — win outright when given, so a click
+    works even on a server with no EQLDATA_* env config at all."""
+    from app.core.config import settings
+    from app.repositories import instrument_repo
+    from app.services import eqldata_client, inception_vendor_sync_service as svc
+
+    monkeypatch.setattr(settings, "eqldata_email", "")
+    monkeypatch.setattr(settings, "eqldata_password", "")
+
+    async def _fake_get_latest(session):
+        return date.today()  # already up to date -> returns before any vendor call
+
+    monkeypatch.setattr(instrument_repo, "get_latest_trade_date", _fake_get_latest)
+
+    captured = {}
+    monkeypatch.setattr(
+        eqldata_client, "generate_auth_token",
+        lambda email, password, base_url: captured.update(email=email, password=password) or "tok",
+    )
+
+    result = asyncio.run(svc.sync_nfofut_from_vendor(
+        _FakeSession(), email="from-field@x.com", password="field-pw", exchange="NFOFUT",
+    ))
+    assert result.status == "already_up_to_date"
+    assert result.exchange == "NFOFUT"
+    # No vendor call happened (already up to date), but not raising
+    # VendorNotConfiguredError despite blank server env already proves the
+    # request-supplied credentials were accepted as sufficient.
+    assert captured == {}
+
+
+def test_sync_falls_back_to_server_env_when_request_fields_blank(monkeypatch):
+    from app.core.config import settings
+    from app.exceptions import VendorNotConfiguredError
+    from app.services import inception_vendor_sync_service as svc
+
+    monkeypatch.setattr(settings, "eqldata_email", "")
+    monkeypatch.setattr(settings, "eqldata_password", "")
+
+    # Blank strings from the request count as "not given", same as None.
+    with pytest.raises(VendorNotConfiguredError):
+        asyncio.run(svc.sync_nfofut_from_vendor(_FakeSession(), email="", password=""))
+
+
 def test_sync_raises_when_no_data_loaded_yet(monkeypatch):
     from app.core.config import settings
     from app.exceptions import VendorInitialSyncRequiredError

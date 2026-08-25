@@ -2,13 +2,15 @@
 (screens/inception_settings.py in the desktop client) — a single click
 that:
   1. Finds the last date data is available (MAX(EodBar.trade_date)).
-  2. Fetches everything NFOFUT has published since then, through today,
-     from Equal Solution (the vendor), using server-side-only credentials
-     (app.core.config.settings.eqldata_*) — the desktop client never sends
-     or receives them, see app/routers/inception.py's endpoint and that
-     repo's screens/inception_settings.py docstring for why (a distributed
-     desktop app is the wrong place to hold a shared vendor account's real
-     password).
+  2. Fetches everything the requested exchange (NFOFUT by default) has
+     published since then, through today, from Equal Solution (the
+     vendor). Credentials/exchange come from the request when the desktop
+     sends them (its Username/Password/Exchange fields — see that repo's
+     screens/inception_settings.py) — explicitly requested by the user
+     over the server-only-credentials alternative, so a click works
+     end-to-end without needing this server's own env config populated
+     first — falling back to this server's env config
+     (app.core.config.settings.eqldata_*) for whatever the request omits.
   3. Upserts it straight into the central Instrument/EodBar/TradingCalendar
      tables — the same shared dataset every tenant's Inception feature
      reads from (see docs/INCEPTION_DATA.md).
@@ -44,17 +46,29 @@ from app.repositories import instrument_repo
 from app.schemas.inception import VendorSyncResponse
 from app.services import eqldata_client
 
-EXCHANGE = "NFOFUT"
+DEFAULT_EXCHANGE = "NFOFUT"
 _MAX_RANGE_DAYS = 366  # vendor's documented per-request cap
 _MAX_SYMBOLS_PER_REQUEST = 500  # vendor's documented per-request cap
 _ROLL_SUFFIXES = ("_I", "_II")
 
 
-async def sync_nfofut_from_vendor(session: AsyncSession) -> VendorSyncResponse:
-    if not settings.eqldata_email or not settings.eqldata_password:
+async def sync_nfofut_from_vendor(
+    session: AsyncSession, email: str | None = None, password: str | None = None,
+    exchange: str | None = None,
+) -> VendorSyncResponse:
+    """email/password/exchange, when given (non-blank), come from the
+    desktop's own Username/Password/Exchange fields and win outright over
+    this server's env config — see this module's own docstring. Blank
+    strings count as "not given" too (an empty field, not just an absent
+    one)."""
+    email = email or settings.eqldata_email
+    password = password or settings.eqldata_password
+    exchange = exchange or DEFAULT_EXCHANGE
+    if not email or not password:
         raise VendorNotConfiguredError(
-            "Equal Solution credentials aren't configured on this server "
-            "(EQLDATA_EMAIL/EQLDATA_PASSWORD) — see .env.example."
+            "Equal Solution credentials aren't configured — enter a Username/"
+            "Password in Inception > Data & Settings, or set EQLDATA_EMAIL/"
+            "EQLDATA_PASSWORD on this server (see .env.example)."
         )
 
     last_available = await instrument_repo.get_latest_trade_date(session)
@@ -69,19 +83,18 @@ async def sync_nfofut_from_vendor(session: AsyncSession) -> VendorSyncResponse:
     date_from = last_available + timedelta(days=1)
     if date_from > today:
         return VendorSyncResponse(
-            status="already_up_to_date", exchange=EXCHANGE, date_from=date_from, date_to=today,
+            status="already_up_to_date", exchange=exchange, date_from=date_from, date_to=today,
             last_available_before=last_available, last_available_after=last_available,
             instruments_added=0, bars_written=0,
         )
 
     token = await asyncio.to_thread(
-        eqldata_client.generate_auth_token,
-        settings.eqldata_email, settings.eqldata_password, settings.eqldata_base_url,
+        eqldata_client.generate_auth_token, email, password, settings.eqldata_base_url,
     )
     all_instruments = await asyncio.to_thread(
         eqldata_client.get_instrument_list, token, settings.eqldata_base_url,
     )
-    symbols = _continuous_futures(all_instruments.get(EXCHANGE, []))
+    symbols = _continuous_futures(all_instruments.get(exchange, []))
 
     instrument_by_symbol = await instrument_repo.get_or_create_instruments(session, symbols)
     # A brand-new instrument this sync just created has no bounds set yet
@@ -97,7 +110,7 @@ async def sync_nfofut_from_vendor(session: AsyncSession) -> VendorSyncResponse:
     dates_by_instrument: dict[int, list[date]] = {}
 
     for symbol_batch in _chunk_list(symbols, _MAX_SYMBOLS_PER_REQUEST):
-        prefixed = [f"{EXCHANGE}:{sym}" for sym in symbol_batch]
+        prefixed = [f"{exchange}:{sym}" for sym in symbol_batch]
         for chunk_start, chunk_end in _chunk_dates(date_from, today, _MAX_RANGE_DAYS):
             csv_rows = await asyncio.to_thread(
                 eqldata_client.fetch_eod_range_rows, token, prefixed,
@@ -121,7 +134,7 @@ async def sync_nfofut_from_vendor(session: AsyncSession) -> VendorSyncResponse:
     last_available_after = max(seen_dates) if seen_dates else last_available
 
     return VendorSyncResponse(
-        status="ok", exchange=EXCHANGE, date_from=date_from, date_to=today,
+        status="ok", exchange=exchange, date_from=date_from, date_to=today,
         last_available_before=last_available, last_available_after=last_available_after,
         instruments_added=instruments_added, bars_written=bars_written,
     )

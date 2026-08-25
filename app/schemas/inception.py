@@ -90,6 +90,17 @@ class InceptionFormulaVariableListResponse(BaseModel):
 # ── Vendor sync (app/services/inception_vendor_sync_service.py — the
 # "Fetch from Equal Solution" button) ─────────────────────────────────────
 
+class VendorSyncRequest(BaseModel):
+    """All optional: the desktop's Username/Password/Exchange fields (see
+    that repo's screens/inception_settings.py) are sent as typed, so a
+    field the user actually edited is honored — omitted/blank falls back
+    to this server's own env config (Settings.eqldata_*) for email/
+    password, or "NFOFUT" for exchange."""
+    email: str | None = None
+    password: str | None = None
+    exchange: str | None = None
+
+
 class VendorSyncResponse(BaseModel):
     status: str  # "ok" | "already_up_to_date"
     exchange: str
