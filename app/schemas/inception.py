@@ -39,12 +39,44 @@ class BarRow(BaseModel):
     close: float
     volume: int
     open_interest: int | None
+    # Turnover/average-traded-price figures — populated only where Admin
+    # Controls > Inception Sync (app.services.inception_admin_sync_service)
+    # has copied them over from LMV's own archive; null everywhere else,
+    # same "blank rather than crash" convention every other optional field
+    # here already has.
+    avg_rate: float | None = None
+    patp: float | None = None
+    pwatp: float | None = None
+    pmatp: float | None = None
+    cwatp: float | None = None
+    cmatp: float | None = None
+    day_to: float | None = None
+    pdto: float | None = None
+    cwto: float | None = None
+    pwto: float | None = None
 
 
 class BarsResponse(BaseModel):
     date_from: date
     date_to: date
     rows: list[BarRow]
+
+
+# ── Admin Controls > Inception Sync (app.services.inception_admin_sync_
+# service — restricted to app.core.deps.require_admin_email) ────────────────
+
+class InceptionAdminSyncMetricResult(BaseModel):
+    name: str
+    column: str
+    candidate_rows: int
+    rows_updated: int
+
+
+class InceptionAdminSyncResponse(BaseModel):
+    metrics: list[InceptionAdminSyncMetricResult]
+    date_from: date | None
+    date_to: date | None
+    symbols_matched: int
 
 
 # ── Strategy CRUD (mirrors app/schemas/strategies.py) ────────────────────────

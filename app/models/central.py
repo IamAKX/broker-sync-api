@@ -115,6 +115,32 @@ class EodBar(CentralBase):
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="eqldata")
     ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
+    # Turnover/average-traded-price figures — NOT part of the eqldata vendor
+    # feed (that's what "source" above always is for this table today), so
+    # these stay null for every row until backfilled separately. Populated
+    # by app.services.inception_admin_sync_service from each admin tenant's
+    # own LmvDailySnapshot archive (which already carries these as
+    # formula_engine-computed values from LMV's own daily grid — this
+    # column set mirrors that Metric registry's names 1:1, snake_cased) —
+    # see that service's own docstring for the sync/matching logic (join on
+    # Instrument.underlying_symbol = Stock.symbol, since LMV's Stock rows
+    # are the plain underlying, not Inception's continuous-roll series).
+    # Nullable on every column: an instrument/date this hasn't been synced
+    # for yet (or that LMV's own snapshot never covered) simply has no
+    # value here, same "blank rather than crash" convention every reader
+    # of these already uses (see inception_formula_builder_columns.py in
+    # the desktop client repo).
+    avg_rate: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    patp: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    pwatp: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    pmatp: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    cwatp: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    cmatp: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    day_to: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    pdto: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    cwto: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    pwto: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+
     __table_args__ = (
         Index("ix_eod_bar_date", "trade_date"),
     )

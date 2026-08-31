@@ -128,6 +128,15 @@ class InvalidPeriodError(AppError):
     code = "invalid_period"
 
 
+class AdminOnlyError(AppError):
+    """The caller is authenticated but not the specific admin account an
+    endpoint is restricted to (see app.core.deps.require_admin_email) —
+    e.g. POST /inception/admin/sync-lmv-metrics, gated to a single named
+    account rather than a role, at the feature's own request."""
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "admin_only"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:

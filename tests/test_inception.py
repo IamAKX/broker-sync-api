@@ -16,6 +16,7 @@ def test_inception_routes_registered():
         "/inception/availability", "/inception/instruments", "/inception/bars",
         "/inception/strategies", "/inception/strategies/{strategy_id}",
         "/inception/formula-variables", "/inception/formula-variables/{variable_id}",
+        "/inception/admin/sync-lmv-metrics",
     ]:
         assert expected in paths
     # Group A/B computation (and every endpoint that served it) moved
@@ -95,6 +96,11 @@ def test_get_bars_in_range_filters_by_date_and_optional_symbols():
 
     asyncio.run(get_bars_in_range(_FakeSession(), date(2025, 1, 1), date(2025, 1, 31), symbols=["ABB_I"]))
     assert "symbol IN" in captured["sql"] and "symbol IN" not in no_filter_sql
+    # Admin Controls > Inception Sync's own columns (migrations/central/
+    # versions/0006_...) must be part of the same bulk feed /inception/bars
+    # already serves, not a separate endpoint.
+    for column in ("avg_rate", "patp", "pwatp", "pmatp", "cwatp", "cmatp", "day_to", "pdto", "cwto", "pwto"):
+        assert column in no_filter_sql
 
 
 def test_inception_strategy_fetch_all_filters_by_user_id():

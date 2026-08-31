@@ -3,10 +3,11 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, require_admin_email
 from app.db.deps import get_central_db, get_tenant_db
 from app.schemas.inception import (
     BarsResponse,
+    InceptionAdminSyncResponse,
     InceptionAvailabilityResponse,
     InceptionFormulaVariableListResponse,
     InceptionFormulaVariableResponse,
@@ -18,7 +19,7 @@ from app.schemas.inception import (
     VendorSyncRequest,
     VendorSyncResponse,
 )
-from app.services import inception_service, inception_vendor_sync_service
+from app.services import inception_admin_sync_service, inception_service, inception_vendor_sync_service
 
 router = APIRouter(prefix="/inception", tags=["inception"])
 
@@ -68,6 +69,24 @@ async def vendor_sync(
     return await inception_vendor_sync_service.sync_nfofut_from_vendor(
         central_session, email=payload.email, password=payload.password, exchange=payload.exchange,
     )
+
+
+# ── Admin Controls > Inception Sync (desktop client menu, gated client-side
+# to the same account this endpoint enforces server-side — see
+# app.core.deps.require_admin_email) ─────────────────────────────────────────
+
+@router.post("/admin/sync-lmv-metrics", response_model=InceptionAdminSyncResponse)
+async def admin_sync_lmv_metrics(
+    # require_admin_email (not get_current_user) — this mutates the shared
+    # central EodBar table from one specific admin's own tenant data, not a
+    # per-tenant-owned resource any authenticated user should be able to
+    # trigger.
+    current_user: CurrentUser = Depends(require_admin_email),
+    tenant_session: AsyncSession = Depends(get_tenant_db),
+    central_session: AsyncSession = Depends(get_central_db),
+) -> InceptionAdminSyncResponse:
+    result = await inception_admin_sync_service.sync_lmv_metrics_to_eod_bar(tenant_session, central_session)
+    return InceptionAdminSyncResponse(**result)
 
 
 # ── Strategy CRUD (tenant-scoped, storage/sync only — evaluated entirely on

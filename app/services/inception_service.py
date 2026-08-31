@@ -70,6 +70,14 @@ async def list_instruments(central_session: AsyncSession) -> InstrumentListRespo
 # computation — see docs on the client-side move; this endpoint has no
 # knowledge of Group A/B at all, it's a plain OHLCV read) ────────────────────
 
+def _optional_float(value) -> float | None:
+    """EodBar's turnover/avg-traded-price columns (see app.services.
+    inception_admin_sync_service) are nullable DECIMALs, unlike OHLC's
+    always-present ones above — None must pass through as None, not
+    float(None)."""
+    return float(value) if value is not None else None
+
+
 async def get_bars(
     central_session: AsyncSession, date_from: date, date_to: date, symbols: list[str] | None = None,
 ) -> BarsResponse:
@@ -93,6 +101,11 @@ async def get_bars(
                 symbol=r["symbol"], trade_date=r["trade_date"],
                 open=float(r["open"]), high=float(r["high"]), low=float(r["low"]), close=float(r["close"]),
                 volume=r["volume"], open_interest=r["open_interest"],
+                avg_rate=_optional_float(r["avg_rate"]), patp=_optional_float(r["patp"]),
+                pwatp=_optional_float(r["pwatp"]), pmatp=_optional_float(r["pmatp"]),
+                cwatp=_optional_float(r["cwatp"]), cmatp=_optional_float(r["cmatp"]),
+                day_to=_optional_float(r["day_to"]), pdto=_optional_float(r["pdto"]),
+                cwto=_optional_float(r["cwto"]), pwto=_optional_float(r["pwto"]),
             )
             for r in rows
         ],
