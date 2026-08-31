@@ -64,11 +64,12 @@ class _FakeResult:
 
 class _FakeConnection:
     def __init__(self):
-        self.calls = []  # [(stmt_str, params), ...]
+        self.calls = []  # [(stmt_str, bind_dict), ...] — one call per batch
 
-    async def execute(self, stmt, params):
-        self.calls.append((str(stmt), params))
-        return _FakeRowcountResult(len(params))
+    async def execute(self, stmt, bind):
+        self.calls.append((str(stmt), bind))
+        # bind has 3 keys per row (iidN/tdN/valN) — see _bulk_update_column.
+        return _FakeRowcountResult(len(bind) // 3)
 
 
 class _FakeRowcountResult:
@@ -132,13 +133,17 @@ def test_sync_writes_one_lmv_value_into_every_roll_series_sharing_the_underlying
     assert avg_rate_metric["rows_updated"] == 2
     assert central.committed is True
 
-    # Exactly one bulk UPDATE call was issued for avg_rate, with both
-    # instrument ids and the same value.
+    # Exactly one batched UPDATE call was issued for avg_rate (well under
+    # _UPDATE_BATCH_SIZE), with both instrument ids and the same value.
     assert len(central.connection_obj.calls) == 1
-    _, params = central.connection_obj.calls[0]
-    assert {p["_iid"] for p in params} == {101, 102}
-    assert all(p["_val"] == 1234.5 for p in params)
-    assert all(p["_td"] == date(2026, 8, 31) for p in params)
+    stmt_str, bind = central.connection_obj.calls[0]
+    assert 'UPDATE "EodBar" SET avg_rate = v.val' in stmt_str
+    iids = {v for k, v in bind.items() if k.startswith("iid")}
+    vals = {v for k, v in bind.items() if k.startswith("val")}
+    tds = {v for k, v in bind.items() if k.startswith("td")}
+    assert iids == {101, 102}
+    assert vals == {1234.5}
+    assert tds == {date(2026, 8, 31)}
 
 
 def test_sync_skips_dated_contract_stock_rows():

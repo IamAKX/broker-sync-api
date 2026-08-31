@@ -39,11 +39,23 @@ vendor bar for that instrument/date) is simply skipped, not an error.
 import re
 from datetime import date
 
-from sqlalchemy import bindparam, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
-from app.models.central import EodBar, Instrument
+from app.models.central import Instrument
 from app.models.tenant import LmvDailySnapshot, Metric, Stock
+
+# Batched single UPDATE...FROM (VALUES ...) statements, not one bindparam +
+# executemany-style bulk UPDATE. Matters for a reason beyond just style: an
+# executemany UPDATE's rowcount is DBAPI-defined and unreliable — confirmed
+# directly against this exact endpoint (psycopg/asyncpg both just report -1
+# for it, even though every row is written correctly) — while a real single
+# UPDATE statement's own rowcount is always accurate. 500 rows/statement
+# keeps each statement's param count (3 per row: instrument_id, trade_date,
+# value) comfortably under Postgres's 65535 limit with room to spare, same
+# order of magnitude as app/repositories/instrument_repo.py's own
+# _EOD_BAR_UPSERT_BATCH_SIZE.
+_UPDATE_BATCH_SIZE = 500
 
 # name (as registered in hari_dss.Metric) -> EodBar column name. "Avg Rate"
 # (id 23, the populated one) not "AvgRate" (id 18, zero rows — a dead
@@ -133,19 +145,7 @@ async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_sess
     metrics_summary = []
     name_by_column = {v: k for k, v in _METRIC_TO_COLUMN.items()}
     for column, params in params_by_column.items():
-        rows_updated = 0
-        if params:
-            stmt = (
-                update(EodBar)
-                .where(EodBar.instrument_id == bindparam("_iid"), EodBar.trade_date == bindparam("_td"))
-                .values(**{column: bindparam("_val")})
-            )
-            # Same "Core connection, not ORM session" reasoning as
-            # instrument_repo.update_instrument_date_bounds — an executemany
-            # UPDATE with an explicit WHERE bindparam clause, not an ORM
-            # bulk-by-primary-key operation.
-            result = await connection.execute(stmt, params)
-            rows_updated = result.rowcount
+        rows_updated = await _bulk_update_column(connection, column, params) if params else 0
         metrics_summary.append({
             "name": name_by_column[column],
             "column": column,
@@ -160,3 +160,45 @@ async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_sess
         "date_to": max(dates) if dates else None,
         "symbols_matched": len(symbol_to_instrument_ids),
     }
+
+
+async def _bulk_update_column(connection: AsyncConnection, column: str, params: list[dict]) -> int:
+    """Writes params ([{"_iid", "_td", "_val"}, ...]) into EodBar.<column>
+    via batched UPDATE ... FROM (VALUES ...) statements — see this
+    module's own _UPDATE_BATCH_SIZE comment for why a real single
+    statement per batch, not one bindparam-executemany call, is what
+    makes the returned row count trustworthy. *column* is always one of
+    _METRIC_TO_COLUMN's own values (never end-user input), so splicing it
+    directly into the SQL text is safe; every actual value stays a bound
+    parameter.
+    """
+    total = 0
+    for start in range(0, len(params), _UPDATE_BATCH_SIZE):
+        batch = params[start:start + _UPDATE_BATCH_SIZE]
+        # Explicit casts are required — asyncpg's prepared-statement
+        # protocol needs each parameter's type resolved up front and does
+        # NOT infer it from the later WHERE/SET comparison the way a
+        # plain-text/psycopg2 round trip would (confirmed directly:
+        # "operator does not exist: bigint = text" without these). Written
+        # as CAST(:x AS bigint), not :x::bigint — SQLAlchemy's text()
+        # treats a bare "::" as an escaped literal colon, not Postgres's
+        # cast operator (confirmed directly too: "syntax error at or near
+        # ':'" with :: included), so CAST(...) is what actually parses
+        # here in either driver.
+        values_sql = ", ".join(
+            f"(CAST(:iid{i} AS bigint), CAST(:td{i} AS date), CAST(:val{i} AS numeric))"
+            for i in range(len(batch))
+        )
+        bind = {}
+        for i, p in enumerate(batch):
+            bind[f"iid{i}"] = p["_iid"]
+            bind[f"td{i}"] = p["_td"]
+            bind[f"val{i}"] = p["_val"]
+        stmt = text(
+            f'UPDATE "EodBar" SET {column} = v.val '
+            f'FROM (VALUES {values_sql}) AS v(iid, td, val) '
+            f'WHERE "EodBar".instrument_id = v.iid AND "EodBar".trade_date = v.td'
+        )
+        result = await connection.execute(stmt, bind)
+        total += result.rowcount
+    return total
