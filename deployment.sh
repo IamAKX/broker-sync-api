@@ -23,6 +23,20 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Applies any new migrations/central/versions/*.py the code being deployed
+# depends on. Missing this step is exactly what caused a "Sync Now"/
+# "Internal Server Error" outage on 2026-09-05: 6290fc2 shipped new EodBar
+# columns (migration 0007) and this script deployed that code straight from
+# git pull with no migration step at all, so the running app queried
+# columns (or_high, call_strike_highest_oi, ...) that didn't exist yet on
+# the RDS schema (still at 0006) — every /inception/bars call (the Local
+# Data Sync "Sync Now"/"Full Resync" buttons) 500'd with asyncpg's
+# UndefinedColumnError until this was run by hand. Runs before the service
+# is stopped below so a bad migration aborts the deploy (set -euo pipefail)
+# without taking down the currently-running (old-schema-compatible) service.
+echo "[deploy] Running database migrations..."
+alembic -c alembic_central.ini upgrade head
+
 echo "[deploy] Stopping existing service if running..."
 if sudo systemctl is-active --quiet brokersync; then
   sudo systemctl stop brokersync
