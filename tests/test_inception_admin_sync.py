@@ -78,17 +78,28 @@ class _FakeRowcountResult:
 
 
 class _FakeTenantSession:
-    """Programmed to answer the service's three tenant-schema queries, in
-    the order it issues them: Metric, then Stock, then LmvDailySnapshot."""
+    """Dispatches by the queried table's name (found in the compiled
+    statement text) rather than call order — sync_lmv_metrics_to_eod_bar
+    now runs two independent sync paths (_sync_lmv_metrics,
+    _sync_opening_range) that each issue their own queries, in an order
+    that's an implementation detail, not a contract worth pinning tests to.
+    *or_capture_rows* defaults to [] — most of these tests only exercise
+    the Metric/LmvDailySnapshot path."""
 
-    def __init__(self, metric_rows, stock_rows, snapshot_rows):
-        self._answers = [metric_rows, stock_rows, snapshot_rows]
-        self._i = 0
+    def __init__(self, metric_rows, stock_rows, snapshot_rows, or_capture_rows=None):
+        self._by_table = {
+            "Metric": metric_rows,
+            "Stock": stock_rows,
+            "LmvDailySnapshot": snapshot_rows,
+            "OpeningRangeCapture": or_capture_rows or [],
+        }
 
     async def execute(self, stmt):
-        rows = self._answers[self._i]
-        self._i += 1
-        return _FakeResult(rows)
+        text = str(stmt)
+        for table, rows in self._by_table.items():
+            if f'FROM "{table}"' in text:
+                return _FakeResult(rows)
+        raise AssertionError(f"unexpected query, no fake table match: {text}")
 
 
 class _FakeCentralSession:
@@ -206,3 +217,91 @@ def test_sync_no_registered_metrics_is_a_clean_noop():
     central = _FakeCentralSession([])
     result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
     assert result == {"metrics": [], "date_from": None, "date_to": None, "symbols_matched": 0}
+
+
+def test_options_oi_and_market_profile_metrics_use_the_same_lmv_snapshot_path():
+    """callstrikehighestoi/Max Pain/VAH/POC/VAL aren't turnover/ATP figures,
+    but they're archived to LmvDailySnapshot exactly the same way — same
+    _sync_lmv_metrics code path, just more _METRIC_TO_COLUMN entries."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(50, "Max Pain"), (51, "VAH")]
+    stock_rows = [(1, "ADANIENT")]
+    snapshot_rows = [
+        (date(2026, 9, 4), 1, 50, 9999.0),
+        (date(2026, 9, 4), 1, 51, 2500.0),
+    ]
+    instrument_rows = [(101, "ADANIENT")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    columns = {m["column"]: m for m in result["metrics"]}
+    assert columns["max_pain"]["rows_updated"] == 1
+    assert columns["vah"]["rows_updated"] == 1
+
+
+# ── OR.High/OR.Low: separate OpeningRangeCapture path ────────────────────
+
+def test_sync_opening_range_writes_into_every_roll_series_sharing_the_underlying():
+    """Same fan-out rule as the Metric-based path (see the analogous Avg
+    Rate test above), but sourced from OpeningRangeCapture instead of
+    LmvDailySnapshot — OR.High/OR.Low describe the underlying stock's
+    opening window, not one specific roll series."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    stock_rows = [(1, "ADANIENT")]
+    or_capture_rows = [(date(2026, 9, 4), 1, 3050.0, 3010.0)]  # trade_date, stock_id, high, low
+    instrument_rows = [(101, "ADANIENT"), (102, "ADANIENT")]  # _I and _II
+
+    tenant = _FakeTenantSession([], stock_rows, [], or_capture_rows=or_capture_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    columns = {m["column"]: m for m in result["metrics"]}
+    assert columns["or_high"]["candidate_rows"] == 2  # both _I and _II
+    assert columns["or_high"]["rows_updated"] == 2
+    assert columns["or_low"]["candidate_rows"] == 2
+    assert columns["or_low"]["rows_updated"] == 2
+    assert result["date_from"] == date(2026, 9, 4)
+    assert result["symbols_matched"] == 1
+
+
+def test_sync_opening_range_skips_rows_with_no_matching_instrument():
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    stock_rows = [(1, "NIFTY")]
+    or_capture_rows = [(date(2026, 9, 4), 1, 25000.0, 24800.0)]
+    tenant = _FakeTenantSession([], stock_rows, [], or_capture_rows=or_capture_rows)
+    central = _FakeCentralSession([])  # no Instrument for "NIFTY"
+
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+    columns = {m["column"]: m for m in result["metrics"]}
+    assert columns["or_high"]["candidate_rows"] == 0
+    assert columns["or_low"]["candidate_rows"] == 0
+
+
+def test_sync_merges_metric_and_opening_range_results_into_one_response():
+    """The two sync paths (LmvDailySnapshot-based metrics, OpeningRange
+    Capture-based OR.High/OR.Low) share one commit and one combined
+    response — symbols_matched is the union of instruments either path
+    actually touched, not a double count or just one path's number."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(23, "Avg Rate")]
+    stock_rows = [(1, "ADANIENT"), (2, "RELIANCE")]
+    snapshot_rows = [(date(2026, 9, 1), 1, 23, 500.0)]
+    or_capture_rows = [(date(2026, 9, 4), 2, 2900.0, 2870.0)]
+    instrument_rows = [(101, "ADANIENT"), (201, "RELIANCE")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows, or_capture_rows=or_capture_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    columns = {m["column"] for m in result["metrics"]}
+    assert {"avg_rate", "or_high", "or_low"} <= columns
+    assert result["date_from"] == date(2026, 9, 1)
+    assert result["date_to"] == date(2026, 9, 4)
+    assert result["symbols_matched"] == 2  # ADANIENT (metric path) + RELIANCE (OR path)
+    assert central.committed is True

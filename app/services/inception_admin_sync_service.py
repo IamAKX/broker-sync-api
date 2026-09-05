@@ -1,11 +1,18 @@
 """Admin Controls > Inception Sync (desktop client: screens/inception_admin_
-sync.py in that repo) — copies the turnover/average-traded-price metrics
-LMV's own daily grid already archives (hari_dss.LmvDailySnapshot) into
-public.EodBar's own columns of the same name (see app/models/central.py's
-EodBar, migrations/central/versions/0006_...), so Inception's Strategy
-Builder can offer them as plain fields the same way OPEN/HIGH/LOW/CLOSE
-already are — not recomputed from formula_engine.py client-side, just
-copied over as already-computed values.
+sync.py in that repo) — copies figures LMV's own daily grid already
+archives (hari_dss.LmvDailySnapshot) into public.EodBar's own columns of
+the same name (see app/models/central.py's EodBar, migrations/central/
+versions/0006_.../0007_...), so Inception's Strategy Builder can offer them
+as plain fields the same way OPEN/HIGH/LOW/CLOSE already are — not
+recomputed from formula_engine.py client-side, just copied over as
+already-computed values. Covers the turnover/average-traded-price metrics
+(Avg Rate, PATP, ...), the options-OI/max-pain sheet columns
+(callstrikehighestoi, Max Pain, ...), and Market Profile (VAH/POC/VAL) —
+all via the SAME LmvDailySnapshot-archived path, see `_METRIC_TO_COLUMN`.
+
+OR.High/OR.Low are the one exception: they come from a separate table,
+hari_dss.OpeningRangeCapture, not LmvDailySnapshot/Metric at all — see
+`_sync_opening_range` below for that different join.
 
 Restricted to one named admin account (app.core.deps.require_admin_email),
 not a role — the ONLY tenant schema this ever reads from is that admin's
@@ -43,7 +50,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.models.central import Instrument
-from app.models.tenant import LmvDailySnapshot, Metric, Stock
+from app.models.tenant import LmvDailySnapshot, Metric, OpeningRangeCapture, Stock
 
 # Batched single UPDATE...FROM (VALUES ...) statements, not one bindparam +
 # executemany-style bulk UPDATE. Matters for a reason beyond just style: an
@@ -72,7 +79,27 @@ _METRIC_TO_COLUMN = {
     "PDTO": "pdto",
     "CWTO": "cwto",
     "PWTO": "pwto",
+    # Options-OI/max-pain sheet columns (ReliableSoftware/NiftyInvest) and
+    # Market Profile (VAH/POC/VAL) — same LmvDailySnapshot-archived path,
+    # case-sensitive names exactly as config_defaults.MAIN_COLUMN_NAME_DATA/
+    # broker_db_source.MARKET_PROFILE_HEADERS register them as LMV headers
+    # (verify against the desktop repo before renaming either side).
+    "callstrikehighestoi": "call_strike_highest_oi",
+    "Callstrikewithsecondhighestoi": "call_strike_with_second_highest_oi",
+    "PutStrikeWithsecondHighestOI": "put_strike_with_second_highest_oi",
+    "TodayPutHighestStrike": "today_put_highest_strike",
+    "Max Pain": "max_pain",
+    "VAH": "vah",
+    "POC": "poc",
+    "VAL": "val",
 }
+
+# OpeningRangeCapture's own two columns -> EodBar column. Not a Metric-
+# archived value (see this module's docstring) so it's not part of
+# _METRIC_TO_COLUMN, but _sync_opening_range below produces metrics_summary
+# entries in the exact same shape so both paths report through one
+# response list.
+_OR_CAPTURE_TO_COLUMN = {"high": "or_high", "low": "or_low"}
 
 _DATED_SYMBOL_RE = re.compile(r"\d")
 
@@ -84,25 +111,64 @@ async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_sess
     rather than one grand total, since a metric with a lower "rows_updated"
     than "candidate_rows" (fewer EodBar rows already existed than
     LmvDailySnapshot values were available) is a real, useful signal, not
-    noise to average away.
+    noise to average away. Runs BOTH the LmvDailySnapshot-archived metrics
+    (_METRIC_TO_COLUMN) and the separate OpeningRangeCapture-sourced OR.
+    High/OR.Low sync (_sync_opening_range) and merges them into one
+    response — same "metrics" list shape for both, so the desktop sync
+    screen (a generic loop over that list) shows both without caring which
+    path a given row came from.
     """
-    metric_rows = (await tenant_session.execute(
-        select(Metric.id, Metric.name).where(Metric.name.in_(_METRIC_TO_COLUMN.keys()))
-    )).all()
-    metric_id_to_column = {mid: _METRIC_TO_COLUMN[name] for mid, name in metric_rows}
-    if not metric_id_to_column:
-        return {"metrics": [], "date_from": None, "date_to": None, "symbols_matched": 0}
-
-    # Bare-symbol Stock rows only (see this module's docstring) — a plain
-    # dict lookup (symbol -> stock_id) is enough; the reverse direction
-    # (stock_id -> symbol) is what the snapshot query below actually needs,
-    # built from the same query result.
+    # Bare-symbol Stock rows only (see this module's docstring) — shared by
+    # both sync paths below, since both key off the same hari_dss.Stock
+    # identifier space.
     stock_rows = (await tenant_session.execute(
         select(Stock.id, Stock.symbol).where(~Stock.symbol.op("~")(r"\d"))
     )).all()
     stock_id_to_symbol = {sid: sym for sid, sym in stock_rows}
     if not stock_id_to_symbol:
         return {"metrics": [], "date_from": None, "date_to": None, "symbols_matched": 0}
+
+    metrics_summary: list[dict] = []
+    dates: list[date] = []
+    symbols_matched: set[str] = set()
+
+    metric_summary, metric_dates, metric_symbols = await _sync_lmv_metrics(
+        tenant_session, central_session, stock_id_to_symbol,
+    )
+    metrics_summary += metric_summary
+    dates += metric_dates
+    symbols_matched |= metric_symbols
+
+    or_summary, or_dates, or_symbols = await _sync_opening_range(
+        tenant_session, central_session, stock_id_to_symbol,
+    )
+    metrics_summary += or_summary
+    dates += or_dates
+    symbols_matched |= or_symbols
+
+    await central_session.commit()
+
+    return {
+        "metrics": metrics_summary,
+        "date_from": min(dates) if dates else None,
+        "date_to": max(dates) if dates else None,
+        "symbols_matched": len(symbols_matched),
+    }
+
+
+async def _sync_lmv_metrics(
+    tenant_session: AsyncSession, central_session: AsyncSession, stock_id_to_symbol: dict[int, str],
+) -> tuple[list[dict], list[date], set[str]]:
+    """The turnover/ATP + options-OI/max-pain + Market Profile metrics —
+    everything in _METRIC_TO_COLUMN, all archived via hari_dss.
+    LmvDailySnapshot/Metric. Does NOT commit — the caller does, once, after
+    both sync paths have run."""
+    metric_rows = (await tenant_session.execute(
+        select(Metric.id, Metric.name).where(Metric.name.in_(_METRIC_TO_COLUMN.keys()))
+    )).all()
+    metric_id_to_column = {mid: _METRIC_TO_COLUMN[name] for mid, name in metric_rows}
+    if not metric_id_to_column:
+        return [], [], set()
 
     snapshot_rows = (await tenant_session.execute(
         select(
@@ -152,14 +218,65 @@ async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_sess
             "candidate_rows": len(params),
             "rows_updated": rows_updated,
         })
-    await central_session.commit()
 
-    return {
-        "metrics": metrics_summary,
-        "date_from": min(dates) if dates else None,
-        "date_to": max(dates) if dates else None,
-        "symbols_matched": len(symbol_to_instrument_ids),
-    }
+    return metrics_summary, dates, set(symbol_to_instrument_ids)
+
+
+async def _sync_opening_range(
+    tenant_session: AsyncSession, central_session: AsyncSession, stock_id_to_symbol: dict[int, str],
+) -> tuple[list[dict], list[date], set[str]]:
+    """OR.High/OR.Low: unlike every metric in _METRIC_TO_COLUMN, these come
+    from hari_dss.OpeningRangeCapture directly (its own per-stock/per-date
+    High/Low, not a Metric-archived value) — see that table's own
+    docstring. Same underlying-symbol matching + roll-series fan-out as
+    _sync_lmv_metrics, just against a different source table. Does NOT
+    commit — the caller does, once, after both sync paths have run."""
+    capture_rows = (await tenant_session.execute(
+        select(OpeningRangeCapture.trade_date, OpeningRangeCapture.stock_id,
+               OpeningRangeCapture.high, OpeningRangeCapture.low)
+        .where(OpeningRangeCapture.stock_id.in_(stock_id_to_symbol.keys()))
+    )).all()
+    if not capture_rows:
+        return [], [], set()
+
+    underlying_symbols = {stock_id_to_symbol[sid] for _, sid, _, _ in capture_rows}
+    instrument_rows = (await central_session.execute(
+        select(Instrument.id, Instrument.underlying_symbol)
+        .where(Instrument.underlying_symbol.in_(underlying_symbols))
+    )).all()
+    symbol_to_instrument_ids: dict[str, list[int]] = {}
+    for iid, underlying in instrument_rows:
+        symbol_to_instrument_ids.setdefault(underlying, []).append(iid)
+
+    params_by_column: dict[str, list[dict]] = {col: [] for col in _OR_CAPTURE_TO_COLUMN.values()}
+    dates: list[date] = []
+    for trade_date, stock_id, high, low in capture_rows:
+        symbol = stock_id_to_symbol.get(stock_id)
+        instrument_ids = symbol_to_instrument_ids.get(symbol) if symbol else None
+        if not instrument_ids:
+            continue
+        dates.append(trade_date)
+        for iid in instrument_ids:
+            for field, value in (("high", high), ("low", low)):
+                if value is None:
+                    continue
+                params_by_column[_OR_CAPTURE_TO_COLUMN[field]].append(
+                    {"_iid": iid, "_td": trade_date, "_val": value}
+                )
+
+    connection = await central_session.connection()
+    metrics_summary = []
+    name_by_column = {"or_high": "OR.High", "or_low": "OR.Low"}
+    for column, params in params_by_column.items():
+        rows_updated = await _bulk_update_column(connection, column, params) if params else 0
+        metrics_summary.append({
+            "name": name_by_column[column],
+            "column": column,
+            "candidate_rows": len(params),
+            "rows_updated": rows_updated,
+        })
+
+    return metrics_summary, dates, set(symbol_to_instrument_ids)
 
 
 async def _bulk_update_column(connection: AsyncConnection, column: str, params: list[dict]) -> int:

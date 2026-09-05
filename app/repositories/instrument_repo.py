@@ -110,6 +110,10 @@ async def get_bars_in_range(
             EodBar.avg_rate, EodBar.patp, EodBar.pwatp, EodBar.pmatp,
             EodBar.cwatp, EodBar.cmatp, EodBar.day_to, EodBar.pdto,
             EodBar.cwto, EodBar.pwto,
+            EodBar.call_strike_highest_oi, EodBar.call_strike_with_second_highest_oi,
+            EodBar.put_strike_with_second_highest_oi, EodBar.today_put_highest_strike,
+            EodBar.max_pain, EodBar.vah, EodBar.poc, EodBar.val,
+            EodBar.or_high, EodBar.or_low,
         )
         .join(Instrument, Instrument.id == EodBar.instrument_id)
         .where(EodBar.trade_date >= date_from, EodBar.trade_date <= date_to)

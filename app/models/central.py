@@ -141,6 +141,27 @@ class EodBar(CentralBase):
     cwto: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
     pwto: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
 
+    # Options-OI/max-pain (ReliableSoftware/NiftyInvest sheet columns) and
+    # Market Profile (VAH/POC/VAL) figures — same "copied from LMV's own
+    # daily archive, never recomputed here" convention as the turnover/ATP
+    # columns above; see app.services.inception_admin_sync_service.
+    call_strike_highest_oi: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    call_strike_with_second_highest_oi: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    put_strike_with_second_highest_oi: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    today_put_highest_strike: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    max_pain: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    vah: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    poc: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    val: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    # Opening Range High/Low — UNLIKE every other column above, these are
+    # NOT sourced from hari_dss.LmvDailySnapshot/Metric at all; they come
+    # from the separate hari_dss.OpeningRangeCapture table (its own
+    # per-stock/per-date High/Low, not a formula_engine-archived value —
+    # see that table's own docstring). inception_admin_sync_service syncs
+    # them via a second, differently-shaped code path for this reason.
+    or_high: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+    or_low: Mapped[float | None] = mapped_column(DECIMAL(14, 4), nullable=True)
+
     __table_args__ = (
         Index("ix_eod_bar_date", "trade_date"),
     )

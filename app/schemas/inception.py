@@ -54,6 +54,22 @@ class BarRow(BaseModel):
     pdto: float | None = None
     cwto: float | None = None
     pwto: float | None = None
+    # Options-OI/max-pain sheet columns, Market Profile, and Opening Range —
+    # same "populated only where Admin Controls > Inception Sync has run"
+    # convention as the fields above (OR.High/OR.Low specifically come from
+    # a different source table on the backend, hari_dss.OpeningRangeCapture,
+    # not LmvDailySnapshot — see app.services.inception_admin_sync_service —
+    # but that distinction is invisible here, both are just nullable floats).
+    call_strike_highest_oi: float | None = None
+    call_strike_with_second_highest_oi: float | None = None
+    put_strike_with_second_highest_oi: float | None = None
+    today_put_highest_strike: float | None = None
+    max_pain: float | None = None
+    vah: float | None = None
+    poc: float | None = None
+    val: float | None = None
+    or_high: float | None = None
+    or_low: float | None = None
 
 
 class BarsResponse(BaseModel):

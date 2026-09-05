@@ -106,6 +106,13 @@ async def get_bars(
                 cwatp=_optional_float(r["cwatp"]), cmatp=_optional_float(r["cmatp"]),
                 day_to=_optional_float(r["day_to"]), pdto=_optional_float(r["pdto"]),
                 cwto=_optional_float(r["cwto"]), pwto=_optional_float(r["pwto"]),
+                call_strike_highest_oi=_optional_float(r["call_strike_highest_oi"]),
+                call_strike_with_second_highest_oi=_optional_float(r["call_strike_with_second_highest_oi"]),
+                put_strike_with_second_highest_oi=_optional_float(r["put_strike_with_second_highest_oi"]),
+                today_put_highest_strike=_optional_float(r["today_put_highest_strike"]),
+                max_pain=_optional_float(r["max_pain"]),
+                vah=_optional_float(r["vah"]), poc=_optional_float(r["poc"]), val=_optional_float(r["val"]),
+                or_high=_optional_float(r["or_high"]), or_low=_optional_float(r["or_low"]),
             )
             for r in rows
         ],
