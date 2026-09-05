@@ -30,12 +30,17 @@ turnover/ATP metrics are actually keyed against) and one "ADANIENT
 29-Sep-2026"-style dated-contract row per expiry (irrelevant here). Verified
 directly against the live data (not assumed): matching Instrument.
 underlying_symbol against Stock's BARE (no-digit) symbols is what actually
-lines up (423 of ~433 Instrument rows), so that's the join this service
-uses — Stock rows containing a digit (a contract date) are excluded
+lines up — Stock rows containing a digit (a contract date) are excluded
 entirely. One LmvDailySnapshot value for "ADANIENT" is written into EVERY
 Instrument row sharing that underlying_symbol (both the '_I' and '_II'
 roll series), since these figures describe the underlying stock, not a
 specific roll.
+
+The match itself is by _normalize_symbol (below), not exact string
+equality — an exact join originally matched only 423 of ~433 Instrument
+rows; the other ~10 all differed by punctuation/spacing alone (e.g. LMV's
+"GVT&D" vs Instrument's "GVT_D") and were silently getting none of these
+figures at all — see issue #18.
 
 Only UPDATEs existing EodBar rows (instrument_id, trade_date already
 present from the eqldata vendor feed) — never inserts a new EodBar row from
@@ -102,6 +107,26 @@ _METRIC_TO_COLUMN = {
 _OR_CAPTURE_TO_COLUMN = {"high": "or_high", "low": "or_low"}
 
 _DATED_SYMBOL_RE = re.compile(r"\d")
+
+# Collapses punctuation differences between hari_dss.Stock's bare-symbol
+# spelling (e.g. "GVT&D", "M&M", "BAJAJ AUTO") and public.Instrument's own
+# underscore-only spelling for the same instrument ("GVT_D", "M_M",
+# "BAJAJ_AUTO") down to one comparable key — an exact-string join between
+# the two silently dropped every stock whose spelling differs this way
+# (confirmed: 423 of ~433 Instrument rows matched before this fix, the
+# other ~10 exactly the set issue #18 reported: 360ONE, BAJAJ AUTO, GVT&D,
+# M&M, NAM-INDIA, NIFTYNXT50 — none of their turnover/ATP/OI/max-pain/
+# Market Profile/OR figures were ever copied to EodBar). Same technique
+# (and same non-alphanumeric-strip regex) as the desktop client's own
+# services.inception_sector._normalize/services.lmv_inception_fields.
+# _normalize_inception_symbol/services.strategy_engine._norm_for_inception
+# — all solving this identical LMV-vs-Inception spelling mismatch, proven
+# collision-free across this same symbol universe already.
+_SYMBOL_PUNCT_RE = re.compile(r"[^A-Z0-9]")
+
+
+def _normalize_symbol(symbol) -> str:
+    return _SYMBOL_PUNCT_RE.sub("", str(symbol or "").strip().upper())
 
 
 async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_session: AsyncSession) -> dict:
@@ -180,14 +205,17 @@ async def _sync_lmv_metrics(
         )
     )).all()
 
-    underlying_symbols = {stock_id_to_symbol[sid] for _, sid, _, _ in snapshot_rows}
+    # Instrument.underlying_symbol AND Stock's bare symbol are both fetched
+    # for the FULL matched universe (not filtered to underlying_symbols'
+    # exact spellings), then joined by _normalize_symbol — see that
+    # helper's own docstring for why an exact-string join here silently
+    # dropped ~10 real stocks (issue #18).
     instrument_rows = (await central_session.execute(
         select(Instrument.id, Instrument.underlying_symbol)
-        .where(Instrument.underlying_symbol.in_(underlying_symbols))
     )).all()
     symbol_to_instrument_ids: dict[str, list[int]] = {}
     for iid, underlying in instrument_rows:
-        symbol_to_instrument_ids.setdefault(underlying, []).append(iid)
+        symbol_to_instrument_ids.setdefault(_normalize_symbol(underlying), []).append(iid)
 
     # column -> [{"_iid":, "_td":, "_val":}, ...], one entry per (instrument,
     # date) this metric has a real value for AND a matching Instrument row
@@ -199,7 +227,7 @@ async def _sync_lmv_metrics(
         if value is None:
             continue
         symbol = stock_id_to_symbol.get(stock_id)
-        instrument_ids = symbol_to_instrument_ids.get(symbol) if symbol else None
+        instrument_ids = symbol_to_instrument_ids.get(_normalize_symbol(symbol)) if symbol else None
         if not instrument_ids:
             continue
         column = metric_id_to_column[metric_id]
@@ -239,20 +267,20 @@ async def _sync_opening_range(
     if not capture_rows:
         return [], [], set()
 
-    underlying_symbols = {stock_id_to_symbol[sid] for _, sid, _, _ in capture_rows}
+    # See sync_lmv_metrics_to_eod_bar's own _normalize_symbol docstring —
+    # same exact-string-join gap (issue #18), fixed identically here.
     instrument_rows = (await central_session.execute(
         select(Instrument.id, Instrument.underlying_symbol)
-        .where(Instrument.underlying_symbol.in_(underlying_symbols))
     )).all()
     symbol_to_instrument_ids: dict[str, list[int]] = {}
     for iid, underlying in instrument_rows:
-        symbol_to_instrument_ids.setdefault(underlying, []).append(iid)
+        symbol_to_instrument_ids.setdefault(_normalize_symbol(underlying), []).append(iid)
 
     params_by_column: dict[str, list[dict]] = {col: [] for col in _OR_CAPTURE_TO_COLUMN.values()}
     dates: list[date] = []
     for trade_date, stock_id, high, low in capture_rows:
         symbol = stock_id_to_symbol.get(stock_id)
-        instrument_ids = symbol_to_instrument_ids.get(symbol) if symbol else None
+        instrument_ids = symbol_to_instrument_ids.get(_normalize_symbol(symbol)) if symbol else None
         if not instrument_ids:
             continue
         dates.append(trade_date)

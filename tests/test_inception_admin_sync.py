@@ -305,3 +305,55 @@ def test_sync_merges_metric_and_opening_range_results_into_one_response():
     assert result["date_to"] == date(2026, 9, 4)
     assert result["symbols_matched"] == 2  # ADANIENT (metric path) + RELIANCE (OR path)
     assert central.committed is True
+
+
+# ── Punctuation-mismatched symbols (issue #18) ───────────────────────────────
+# hari_dss.Stock's bare-symbol spelling ("GVT&D", "M&M", "BAJAJ AUTO") vs
+# public.Instrument.underlying_symbol's underscore-only spelling ("GVT_D",
+# "M_M", "BAJAJ_AUTO") for the exact same instrument — an exact-string join
+# silently matched neither side for these, so none of their turnover/ATP/
+# OI/max-pain/Market Profile/OR figures were ever copied.
+
+def test_normalize_symbol_collapses_lmv_vs_inception_punctuation():
+    from app.services.inception_admin_sync_service import _normalize_symbol
+    assert _normalize_symbol("GVT&D") == _normalize_symbol("GVT_D")
+    assert _normalize_symbol("M&M") == _normalize_symbol("M_M")
+    assert _normalize_symbol("BAJAJ AUTO") == _normalize_symbol("BAJAJ_AUTO")
+    assert _normalize_symbol("NAM-INDIA") == _normalize_symbol("NAM_INDIA")
+
+
+def test_sync_matches_stock_and_instrument_despite_punctuation_mismatch():
+    """Direct repro of issue #18: LMV's "GVT&D" (hari_dss.Stock.symbol) must
+    still match Instrument.underlying_symbol "GVT_D" and get its Avg Rate
+    copied — this used to silently match nothing at all."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(23, "Avg Rate")]
+    stock_rows = [(1, "GVT&D")]
+    snapshot_rows = [(date(2026, 9, 4), 1, 23, 4500.0)]
+    instrument_rows = [(101, "GVT_D")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    avg_rate = next(m for m in result["metrics"] if m["column"] == "avg_rate")
+    assert avg_rate["candidate_rows"] == 1
+    assert avg_rate["rows_updated"] == 1
+    assert result["symbols_matched"] == 1
+
+
+def test_sync_opening_range_matches_despite_punctuation_mismatch():
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    stock_rows = [(1, "M&M")]
+    or_capture_rows = [(date(2026, 9, 4), 1, 2900.0, 2870.0)]
+    instrument_rows = [(101, "M_M")]
+
+    tenant = _FakeTenantSession([], stock_rows, [], or_capture_rows=or_capture_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    columns = {m["column"]: m for m in result["metrics"]}
+    assert columns["or_high"]["rows_updated"] == 1
+    assert columns["or_low"]["rows_updated"] == 1
