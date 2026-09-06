@@ -128,7 +128,7 @@ def test_sync_writes_one_lmv_value_into_every_roll_series_sharing_the_underlying
 
     metric_rows = [(23, "Avg Rate")]
     stock_rows = [(1, "ADANIENT")]
-    snapshot_rows = [(date(2026, 8, 31), 1, 23, 1234.5)]
+    snapshot_rows = [(date(2026, 8, 31), 1, 23, 1234.5, None)]
     instrument_rows = [(101, "ADANIENT"), (102, "ADANIENT")]  # _I and _II
 
     tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
@@ -168,7 +168,7 @@ def test_sync_skips_dated_contract_stock_rows():
     # The dated-contract row is simply absent from what the query returns
     # (the service's own WHERE clause excludes it) — simulate that here.
     stock_rows = [(1, "ADANIENT")]
-    snapshot_rows = [(date(2026, 8, 31), 1, 23, 100.0)]
+    snapshot_rows = [(date(2026, 8, 31), 1, 23, 100.0, None)]
     instrument_rows = [(101, "ADANIENT")]
 
     tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
@@ -185,7 +185,7 @@ def test_sync_skips_snapshot_rows_with_no_matching_instrument():
 
     metric_rows = [(23, "Avg Rate")]
     stock_rows = [(1, "NIFTY")]
-    snapshot_rows = [(date(2026, 8, 31), 1, 23, 100.0)]
+    snapshot_rows = [(date(2026, 8, 31), 1, 23, 100.0, None)]
     instrument_rows = []  # no Instrument for "NIFTY"
 
     tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
@@ -201,7 +201,7 @@ def test_sync_skips_null_values():
 
     metric_rows = [(23, "Avg Rate")]
     stock_rows = [(1, "ADANIENT")]
-    snapshot_rows = [(date(2026, 8, 31), 1, 23, None)]
+    snapshot_rows = [(date(2026, 8, 31), 1, 23, None, None)]   # both value_number and value_text empty
     instrument_rows = [(101, "ADANIENT")]
 
     tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
@@ -228,8 +228,8 @@ def test_options_oi_and_market_profile_metrics_use_the_same_lmv_snapshot_path():
     metric_rows = [(50, "Max Pain"), (51, "VAH")]
     stock_rows = [(1, "ADANIENT")]
     snapshot_rows = [
-        (date(2026, 9, 4), 1, 50, 9999.0),
-        (date(2026, 9, 4), 1, 51, 2500.0),
+        (date(2026, 9, 4), 1, 50, 9999.0, None),
+        (date(2026, 9, 4), 1, 51, 2500.0, None),
     ]
     instrument_rows = [(101, "ADANIENT")]
 
@@ -240,6 +240,80 @@ def test_options_oi_and_market_profile_metrics_use_the_same_lmv_snapshot_path():
     columns = {m["column"]: m for m in result["metrics"]}
     assert columns["max_pain"]["rows_updated"] == 1
     assert columns["vah"]["rows_updated"] == 1
+
+
+# ── issue #15: Max Pain/VAH/POC/VAL archived as value_text, not
+# value_number — hari_dss.Metric first-registered them data_type='text'
+# (the desktop client's MarketProfile/NiftyInvest CSV import never casts a
+# cell to float — see broker-file-sync's services/file_reader.py), so
+# LmvDailySnapshot.value_number was NULL for every one of their rows and
+# the sync's old value_number-only read silently produced 0 candidate rows
+# for exactly these 4, confirmed directly against the admin's real tenant
+# schema. _numeric_value's value_text fallback fixes this without
+# depending on the client or Metric.data_type ever being corrected. ────────
+
+def test_numeric_value_prefers_value_number_when_present():
+    from app.services.inception_admin_sync_service import _numeric_value
+    assert _numeric_value(1234.5, "9999") == 1234.5
+
+
+def test_numeric_value_falls_back_to_value_text():
+    from app.services.inception_admin_sync_service import _numeric_value
+    assert _numeric_value(None, "1146.8") == 1146.8
+
+
+def test_numeric_value_strips_thousands_separator_commas():
+    from app.services.inception_admin_sync_service import _numeric_value
+    assert _numeric_value(None, "1,150.00") == 1150.0
+
+
+def test_numeric_value_none_for_non_numeric_text():
+    from app.services.inception_admin_sync_service import _numeric_value
+    assert _numeric_value(None, "N/A") is None
+
+
+def test_numeric_value_none_when_both_empty():
+    from app.services.inception_admin_sync_service import _numeric_value
+    assert _numeric_value(None, None) is None
+
+
+def test_sync_reads_market_profile_metrics_archived_as_value_text():
+    """Direct repro of issue #15: VAH archived with value_number NULL,
+    value_text '1146.8' (data_type='text' in hari_dss.Metric) must still
+    be copied into EodBar.vah as a real number, not silently skipped."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(91, "VAH")]
+    stock_rows = [(1, "ADANIENT")]
+    snapshot_rows = [(date(2026, 9, 4), 1, 91, None, "1146.8")]
+    instrument_rows = [(101, "ADANIENT")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    vah = next(m for m in result["metrics"] if m["column"] == "vah")
+    assert vah["candidate_rows"] == 1
+    assert vah["rows_updated"] == 1
+    stmt_str, bind = central.connection_obj.calls[0]
+    assert bind["val0"] == 1146.8
+
+
+def test_sync_still_skips_value_text_that_isnt_actually_numeric():
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(91, "VAH")]
+    stock_rows = [(1, "ADANIENT")]
+    snapshot_rows = [(date(2026, 9, 4), 1, 91, None, "N/A")]
+    instrument_rows = [(101, "ADANIENT")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    vah = next(m for m in result["metrics"] if m["column"] == "vah")
+    assert vah["candidate_rows"] == 0
+    assert vah["rows_updated"] == 0
 
 
 # ── OR.High/OR.Low: separate OpeningRangeCapture path ────────────────────
@@ -291,7 +365,7 @@ def test_sync_merges_metric_and_opening_range_results_into_one_response():
 
     metric_rows = [(23, "Avg Rate")]
     stock_rows = [(1, "ADANIENT"), (2, "RELIANCE")]
-    snapshot_rows = [(date(2026, 9, 1), 1, 23, 500.0)]
+    snapshot_rows = [(date(2026, 9, 1), 1, 23, 500.0, None)]
     or_capture_rows = [(date(2026, 9, 4), 2, 2900.0, 2870.0)]
     instrument_rows = [(101, "ADANIENT"), (201, "RELIANCE")]
 
@@ -330,7 +404,7 @@ def test_sync_matches_stock_and_instrument_despite_punctuation_mismatch():
 
     metric_rows = [(23, "Avg Rate")]
     stock_rows = [(1, "GVT&D")]
-    snapshot_rows = [(date(2026, 9, 4), 1, 23, 4500.0)]
+    snapshot_rows = [(date(2026, 9, 4), 1, 23, 4500.0, None)]
     instrument_rows = [(101, "GVT_D")]
 
     tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)

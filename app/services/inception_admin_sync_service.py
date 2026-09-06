@@ -129,6 +129,25 @@ def _normalize_symbol(symbol) -> str:
     return _SYMBOL_PUNCT_RE.sub("", str(symbol or "").strip().upper())
 
 
+def _numeric_value(value_number, value_text) -> float | None:
+    """value_number if the archived value landed there; otherwise a
+    best-effort numeric parse of value_text (see _sync_lmv_metrics'
+    docstring for why a genuinely numeric metric can end up archived as
+    text) — strips thousands-separator commas/whitespace, same tolerance
+    every other numeric-from-text parse in this codebase uses. None (never
+    an exception) for a value_text that isn't actually numeric, or when
+    both are empty — same "blank rather than crash" convention as every
+    other optional EodBar column."""
+    if value_number is not None:
+        return float(value_number)
+    if value_text is None:
+        return None
+    try:
+        return float(str(value_text).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
 async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_session: AsyncSession) -> dict:
     """Runs the copy described in this module's own docstring. Returns
     {"metrics": [{"name", "column", "candidate_rows", "rows_updated"}, ...],
@@ -187,7 +206,28 @@ async def _sync_lmv_metrics(
     """The turnover/ATP + options-OI/max-pain + Market Profile metrics —
     everything in _METRIC_TO_COLUMN, all archived via hari_dss.
     LmvDailySnapshot/Metric. Does NOT commit — the caller does, once, after
-    both sync paths have run."""
+    both sync paths have run.
+
+    Reads value_text as a fallback whenever value_number is null — issue
+    #15: Max Pain/VAH/POC/VAL are all genuinely numeric (EodBar's own
+    columns for them are DECIMAL), but got first-registered in hari_dss.
+    Metric as data_type='text' (the desktop client's MarketProfile/
+    NiftyInvest CSV import reads every cell as a plain str — see
+    services.file_reader._read_csv in that repo, csv.reader never casts —
+    and app.services.lmv_snapshot_service._infer_data_type classifies a
+    metric's type from whatever Python type its first-ever archived value
+    happened to be), so every one of their 7000+ archived values landed in
+    value_text, never value_number, and this loop's old `if value is None:
+    continue` (value_number only) silently skipped literally all of them —
+    confirmed directly against hari_dss (0 candidate rows for exactly
+    these 4, thousands for every sibling metric). Falling back to
+    value_text here fixes both the already-archived backlog AND any
+    future recurrence (a blank/malformed cell, a metric that's always
+    text-typed for some other reason, ...) without depending on the
+    client-side CSV parsing being fixed or Metric.data_type being
+    corrected — this sync's own job is to produce numeric EodBar columns
+    regardless of how the source happened to type the value.
+    """
     metric_rows = (await tenant_session.execute(
         select(Metric.id, Metric.name).where(Metric.name.in_(_METRIC_TO_COLUMN.keys()))
     )).all()
@@ -197,8 +237,8 @@ async def _sync_lmv_metrics(
 
     snapshot_rows = (await tenant_session.execute(
         select(
-            LmvDailySnapshot.trade_date, LmvDailySnapshot.stock_id,
-            LmvDailySnapshot.metric_id, LmvDailySnapshot.value_number,
+            LmvDailySnapshot.trade_date, LmvDailySnapshot.stock_id, LmvDailySnapshot.metric_id,
+            LmvDailySnapshot.value_number, LmvDailySnapshot.value_text,
         ).where(
             LmvDailySnapshot.metric_id.in_(metric_id_to_column.keys()),
             LmvDailySnapshot.stock_id.in_(stock_id_to_symbol.keys()),
@@ -223,7 +263,8 @@ async def _sync_lmv_metrics(
     # series ('_I' and '_II') sharing that underlying.
     params_by_column: dict[str, list[dict]] = {col: [] for col in metric_id_to_column.values()}
     dates: list[date] = []
-    for trade_date, stock_id, metric_id, value in snapshot_rows:
+    for trade_date, stock_id, metric_id, value_number, value_text in snapshot_rows:
+        value = _numeric_value(value_number, value_text)
         if value is None:
             continue
         symbol = stock_id_to_symbol.get(stock_id)
