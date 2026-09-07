@@ -99,6 +99,53 @@ async def fetch_snapshot_rows(session: AsyncSession, trade_date: date):
     return result.mappings().all()
 
 
+async def fetch_recent_trade_dates(session: AsyncSession, limit: int) -> list[date]:
+    """The `limit` most recent distinct trade_dates with any saved value,
+    returned oldest-first — naturally skips weekends/holidays/missed days
+    since only dates that actually have rows qualify. Same shape as
+    lmv_snapshot_repo.fetch_recent_trade_dates; feeds the /historic/range
+    endpoint (see historical_service.get_snapshot_range) — issue #30 on
+    the desktop client repo: ExternalImport's "database" source used to
+    fetch a cold ~100-day lookback window one date at a time (up to ~70
+    individual HTTP round trips, 8 in flight at once), which saturated
+    this backend's small gunicorn worker pool and starved whatever else
+    was in flight at the same time into a timeout. One bulk call here
+    replaces all of those."""
+    stmt = (
+        select(HistoricalStockValue.trade_date)
+        .distinct()
+        .order_by(HistoricalStockValue.trade_date.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return sorted(result.scalars().all())
+
+
+async def fetch_snapshot_rows_for_dates(session: AsyncSession, trade_dates: list[date]):
+    """Same query shape and Core-execution perf rationale as
+    fetch_snapshot_rows, but for a batch of dates at once — feeds
+    /historic/range. trade_date is included in the selected columns
+    (unlike fetch_snapshot_rows, where it's already known by the caller)
+    so the rows can be grouped back into one SnapshotResponse per day
+    afterward."""
+    stmt = (
+        select(
+            Stock.symbol,
+            Stock.display_name,
+            Metric.name.label("metric_name"),
+            HistoricalStockValue.trade_date,
+            HistoricalStockValue.value_number,
+            HistoricalStockValue.value_text,
+        )
+        .join(HistoricalStockValue.stock)
+        .join(HistoricalStockValue.metric)
+        .where(HistoricalStockValue.trade_date.in_(trade_dates))
+    )
+    connection = await session.connection()
+    result = await connection.execute(stmt)
+    return result.mappings().all()
+
+
 async def fetch_latest_trade_date(session: AsyncSession) -> date | None:
     stmt = select(func.max(HistoricalStockValue.trade_date))
     result = await session.execute(stmt)

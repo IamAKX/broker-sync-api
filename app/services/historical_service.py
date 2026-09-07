@@ -8,7 +8,9 @@ from app.repositories.historical_value_repo import (
     bulk_upsert_historical_values,
     delete_values_for_date,
     fetch_latest_trade_date,
+    fetch_recent_trade_dates,
     fetch_snapshot_rows,
+    fetch_snapshot_rows_for_dates,
     fetch_timeseries_rows,
     fetch_trade_dates_in_range,
 )
@@ -19,6 +21,7 @@ from app.schemas.historic import (
     DateAvailability,
     DateAvailabilityResponse,
     DeleteDayResponse,
+    SnapshotRangeResponse,
     SnapshotResponse,
     StockSnapshot,
     TimeseriesPoint,
@@ -29,6 +32,13 @@ from app.schemas.historic import (
 
 _MAX_TRADE_DATE_FUTURE_DAYS = 1
 _MAX_DATE_RANGE_DAYS = 366
+# Same idea as lmv_snapshot_service._MAX_SNAPSHOT_RANGE_DAYS — this
+# endpoint's own sanity cap on `days`, kept generous relative to
+# ExternalImport's FORMULA_LOOKBACK_DAYS (desktop client: 100 CALENDAR
+# days, so well under 100 actual TRADING days even with zero weekends/
+# holidays removed) so that constant can grow a bit without silently
+# hitting this ceiling.
+_MAX_SNAPSHOT_RANGE_DAYS = 120
 
 
 def _infer_data_type(value: float | str | None) -> str:
@@ -103,6 +113,35 @@ async def get_snapshot(session: AsyncSession, trade_date: date | None) -> Snapsh
         return SnapshotResponse(trade_date=date.today(), stocks=[])
     rows = await fetch_snapshot_rows(session, resolved_date)
     return _pivot_snapshot(resolved_date, rows)
+
+
+async def get_snapshot_range(session: AsyncSession, days: int) -> SnapshotRangeResponse:
+    """The `days` most recent trade dates with any saved historic-upload
+    data, each pivoted the same way as get_snapshot — one bulk query
+    instead of the client making one /historic/snapshot request per date
+    (see this module's own docstring reference in historical_value_repo.
+    fetch_recent_trade_dates for the full "issue #30" rationale: that
+    per-date loop, on a cold cache, was up to ~70 individual round trips
+    that starved this server's small worker pool and made unrelated
+    in-flight requests time out). Same shape as lmv_snapshot_service.
+    get_snapshot_range."""
+    if days < 1:
+        raise InvalidDateRangeError("days must be at least 1")
+    if days > _MAX_SNAPSHOT_RANGE_DAYS:
+        raise InvalidDateRangeError(f"days cannot exceed {_MAX_SNAPSHOT_RANGE_DAYS}")
+
+    trade_dates = await fetch_recent_trade_dates(session, days)
+    if not trade_dates:
+        return SnapshotRangeResponse(days=[])
+
+    rows = await fetch_snapshot_rows_for_dates(session, trade_dates)
+    rows_by_date: dict[date, list] = {d: [] for d in trade_dates}
+    for row in rows:
+        rows_by_date[row["trade_date"]].append(row)
+
+    return SnapshotRangeResponse(
+        days=[_pivot_snapshot(d, rows_by_date[d]) for d in trade_dates]
+    )
 
 
 async def get_timeseries(

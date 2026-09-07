@@ -7,6 +7,7 @@ from app.db.deps import get_tenant_db
 from app.schemas.historic import (
     DateAvailabilityResponse,
     DeleteDayResponse,
+    SnapshotRangeResponse,
     SnapshotResponse,
     TimeseriesResponse,
     UploadRequest,
@@ -35,6 +36,14 @@ async def snapshot(
 @router.get("/latest", response_model=SnapshotResponse)
 async def latest(session: AsyncSession = Depends(get_tenant_db)) -> SnapshotResponse:
     return await historical_service.get_snapshot(session, None)
+
+
+@router.get("/range", response_model=SnapshotRangeResponse)
+async def snapshot_range(
+    days: int = Query(default=20, ge=1, le=120),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> SnapshotRangeResponse:
+    return await historical_service.get_snapshot_range(session, days)
 
 
 @router.get("/timeseries", response_model=TimeseriesResponse)
