@@ -158,10 +158,13 @@ def test_sync_writes_one_lmv_value_into_every_roll_series_sharing_the_underlying
 
 
 def test_sync_skips_dated_contract_stock_rows():
-    """hari_dss.Stock rows with a digit in their symbol (a dated futures
-    contract, e.g. "ADANIENT 29-Sep-2026") must never be treated as the
+    """hari_dss.Stock rows with a trailing " DD-Mon-YYYY" contract-date
+    suffix (e.g. "ADANIENT 29-Sep-2026") must never be treated as the
     plain underlying — only bare symbols are eligible to match an
-    Instrument's underlying_symbol."""
+    Instrument's underlying_symbol. See _DATED_SYMBOL_RE's own docstring
+    for why this is that SPECIFIC suffix and not "any digit anywhere" —
+    the latter also wrongly excluded bare symbols like "360ONE" that
+    legitimately contain a digit themselves (issue #18)."""
     from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
 
     metric_rows = [(23, "Avg Rate")]
@@ -394,6 +397,70 @@ def test_normalize_symbol_collapses_lmv_vs_inception_punctuation():
     assert _normalize_symbol("M&M") == _normalize_symbol("M_M")
     assert _normalize_symbol("BAJAJ AUTO") == _normalize_symbol("BAJAJ_AUTO")
     assert _normalize_symbol("NAM-INDIA") == _normalize_symbol("NAM_INDIA")
+
+
+def test_dated_symbol_regex_matches_only_the_trailing_date_suffix():
+    """Direct repro of issue #18's follow-up: 360ONE and NIFTYNXT50 kept
+    coming back empty even after the punctuation fix above, because they
+    never reached that fix at all — a separate, earlier filter excluded
+    any hari_dss.Stock.symbol containing ANY digit (meant to drop dated
+    futures-contract rows like "ADANIENT 29-Sep-2026"), which also wrongly
+    swept up these two bare stock symbols since their tickers legitimately
+    contain a digit themselves. Verified directly against the live data:
+    of 217 Stock rows containing a digit, exactly 215 carry this trailing
+    date suffix (genuine dated contracts) and exactly 360ONE/NIFTYNXT50
+    don't. This test exercises the actual regex pattern (Python's `re`,
+    not Postgres — but the pattern is plain POSIX-compatible syntax with
+    no engine-specific extensions, so behavior matches what actually runs
+    server-side via Stock.symbol.op("~"))."""
+    import re
+
+    from app.services.inception_admin_sync_service import _DATED_SYMBOL_RE
+    pattern = re.compile(_DATED_SYMBOL_RE)
+
+    # Genuine dated-contract rows — must still match (stay excluded).
+    assert pattern.search("ADANIENT 29-Sep-2026")
+    assert pattern.search("360ONE 29-Sep-2026")
+    assert pattern.search("NIFTYNXT50 29-Sep-2026")
+    assert pattern.search("ABB 5-Oct-2026")  # single-digit day
+
+    # Bare symbols that legitimately contain a digit — must NOT match
+    # (stay included) — the exact issue #18 regression.
+    assert not pattern.search("360ONE")
+    assert not pattern.search("NIFTYNXT50")
+    # Every other bare symbol (no digit at all) — unaffected either way.
+    assert not pattern.search("ADANIENT")
+    assert not pattern.search("GVT&D")
+
+
+def test_sync_includes_bare_stock_symbols_that_contain_digits():
+    """Direct repro of issue #18's follow-up via the full sync path: a
+    bare stock row like "360ONE" must be treated as eligible to match
+    Instrument.underlying_symbol "360ONE" (an EXACT match here — no
+    punctuation difference at all, unlike GVT&D/M&M/etc — this was purely
+    the digit-exclusion bug, see test_dated_symbol_regex_matches_only_
+    the_trailing_date_suffix). The dated-contract row "360ONE
+    29-Sep-2026" is simply absent from what the query returns (same
+    "already filtered" fixture convention as test_sync_skips_dated_
+    contract_stock_rows)."""
+    from app.services.inception_admin_sync_service import sync_lmv_metrics_to_eod_bar
+
+    metric_rows = [(23, "Avg Rate")]
+    stock_rows = [(1, "360ONE"), (2, "NIFTYNXT50")]
+    snapshot_rows = [
+        (date(2026, 9, 4), 1, 23, 7500.0, None),
+        (date(2026, 9, 4), 2, 23, 15000.0, None),
+    ]
+    instrument_rows = [(384, "360ONE"), (390, "360ONE"), (278, "NIFTYNXT50"), (279, "NIFTYNXT50")]
+
+    tenant = _FakeTenantSession(metric_rows, stock_rows, snapshot_rows)
+    central = _FakeCentralSession(instrument_rows)
+    result = asyncio.run(sync_lmv_metrics_to_eod_bar(tenant, central))
+
+    avg_rate = next(m for m in result["metrics"] if m["column"] == "avg_rate")
+    assert avg_rate["candidate_rows"] == 4  # 2 roll series each for 360ONE and NIFTYNXT50
+    assert avg_rate["rows_updated"] == 4
+    assert result["symbols_matched"] == 2
 
 
 def test_sync_matches_stock_and_instrument_despite_punctuation_mismatch():

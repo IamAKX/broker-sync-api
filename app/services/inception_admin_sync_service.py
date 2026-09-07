@@ -29,12 +29,22 @@ per underlying — a bare "ADANIENT" (the one LmvDailySnapshot's own
 turnover/ATP metrics are actually keyed against) and one "ADANIENT
 29-Sep-2026"-style dated-contract row per expiry (irrelevant here). Verified
 directly against the live data (not assumed): matching Instrument.
-underlying_symbol against Stock's BARE (no-digit) symbols is what actually
-lines up — Stock rows containing a digit (a contract date) are excluded
-entirely. One LmvDailySnapshot value for "ADANIENT" is written into EVERY
-Instrument row sharing that underlying_symbol (both the '_I' and '_II'
-roll series), since these figures describe the underlying stock, not a
-specific roll.
+underlying_symbol against Stock's BARE symbols is what actually lines up —
+Stock rows carrying a trailing " DD-Mon-YYYY" contract-date suffix
+(_DATED_SYMBOL_RE, below) are excluded entirely. One LmvDailySnapshot value
+for "ADANIENT" is written into EVERY Instrument row sharing that
+underlying_symbol (both the '_I' and '_II' roll series), since these
+figures describe the underlying stock, not a specific roll.
+
+_DATED_SYMBOL_RE matches that trailing date suffix specifically, NOT "any
+digit anywhere" — an earlier version excluded any Stock.symbol containing
+a digit at all, which (correctly) dropped all 215 genuine dated-contract
+rows but ALSO wrongly dropped "360ONE" and "NIFTYNXT50", the two bare
+stock symbols that legitimately contain digits as part of their own name
+(confirmed directly against hari_dss: of 217 Stock rows containing a
+digit, exactly 215 carry the date suffix and 2 don't — those exact two).
+Neither ever reached the join at all under the old filter, regardless of
+_normalize_symbol below — see issue #18's follow-up comments.
 
 The match itself is by _normalize_symbol (below), not exact string
 equality — an exact join originally matched only 423 of ~433 Instrument
@@ -106,7 +116,16 @@ _METRIC_TO_COLUMN = {
 # response list.
 _OR_CAPTURE_TO_COLUMN = {"high": "or_high", "low": "or_low"}
 
-_DATED_SYMBOL_RE = re.compile(r"\d")
+# A Postgres regex (passed straight to Stock.symbol.op("~"), not compiled
+# client-side) matching hari_dss.Stock's dated-contract-row suffix, e.g.
+# "ADANIENT 29-Sep-2026" — deliberately the specific " DD-Mon-YYYY" suffix,
+# NOT "any digit anywhere" (this module's docstring covers why a blunter
+# \d-anywhere version wrongly excluded the bare "360ONE"/"NIFTYNXT50" stock
+# rows too, since those tickers legitimately contain digits themselves —
+# issue #18). Verified against the live data: of 217 Stock rows containing
+# a digit, exactly 215 match this suffix (genuine dated contracts, correctly
+# excluded) and exactly 2 don't (360ONE, NIFTYNXT50 — now correctly kept).
+_DATED_SYMBOL_RE = r"\s\d{1,2}-[A-Za-z]{3}-\d{4}$"
 
 # Collapses punctuation differences between hari_dss.Stock's bare-symbol
 # spelling (e.g. "GVT&D", "M&M", "BAJAJ AUTO") and public.Instrument's own
@@ -166,7 +185,7 @@ async def sync_lmv_metrics_to_eod_bar(tenant_session: AsyncSession, central_sess
     # both sync paths below, since both key off the same hari_dss.Stock
     # identifier space.
     stock_rows = (await tenant_session.execute(
-        select(Stock.id, Stock.symbol).where(~Stock.symbol.op("~")(r"\d"))
+        select(Stock.id, Stock.symbol).where(~Stock.symbol.op("~")(_DATED_SYMBOL_RE))
     )).all()
     stock_id_to_symbol = {sid: sym for sid, sym in stock_rows}
     if not stock_id_to_symbol:
