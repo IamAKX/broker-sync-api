@@ -122,6 +122,19 @@ def test_upsert_request_requires_valid_status():
         )
 
 
+def test_upsert_request_accepts_trade_cancelled_status():
+    """Issue #32 (desktop client repo): a Target/Stop Loss on the wrong
+    side of the entry price for the signal's direction resolves straight
+    to "trade_cancelled" instead of a normal open signal."""
+    from app.schemas.strategy_signals import StrategySignalUpsertRequest
+
+    req = StrategySignalUpsertRequest(
+        strategy_id=str(uuid.uuid4()), strategy_name="Put OI Sell", symbol="WIPRO",
+        direction="SELL", status="trade_cancelled",
+    )
+    assert req.status == "trade_cancelled"
+
+
 def test_upsert_request_accepts_open_signal_minimal_fields():
     from app.schemas.strategy_signals import StrategySignalUpsertRequest
 

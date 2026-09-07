@@ -12,7 +12,13 @@ class StrategySignalUpsertRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=50)
     sector: str | None = Field(default=None, max_length=100)
     direction: Literal["BUY", "SELL"]
-    status: Literal["open", "stopped_out", "all_targets_achieved"]
+    # "trade_cancelled" — a Target/Stop Loss computed on the wrong side of
+    # the entry price for this signal's own direction (issue #32 on the
+    # desktop client repo): that trade could never have been legitimately
+    # taken, so the client resolves straight to this instead of tracking a
+    # normal open signal. See that repo's services/strategy_alerts/
+    # engine.py::_invalid_metrics.
+    status: Literal["open", "stopped_out", "all_targets_achieved", "trade_cancelled"]
     entry_time: datetime | None = None
     entry_price: float | None = None
     resolved_at: datetime | None = None
