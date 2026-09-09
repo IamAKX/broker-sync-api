@@ -3,20 +3,17 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.db.engine_config import engine_connect_args, engine_pool_kwargs
 
 # Same physical database as central_session's engine, kept as a separate engine so
 # central and tenant-scoped connections never share a pool slot budget with each other
-# under load.
+# under load. Same pool shape + query-safety timeouts (see engine_config / the
+# Settings db_* fields).
 tenant_engine = create_async_engine(
     settings.sql_connection_url,
-    connect_args={
-        "ssl": settings.sql_ssl_mode,
-    },
-    pool_size=5,
-    max_overflow=5,
-    pool_timeout=30,
-    pool_pre_ping=True,
+    connect_args=engine_connect_args("brokersync-tenant"),
     echo=not settings.is_production,
+    **engine_pool_kwargs(),
 )
 
 

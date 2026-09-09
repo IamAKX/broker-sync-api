@@ -15,6 +15,38 @@ class Settings(BaseSettings):
 
     sql_ssl_mode: str = "require"
 
+    # ── Connection pool / query safety ────────────────────────────────────
+    # Two engines (central + tenant) each get their own pool of this shape,
+    # both pointing at the same RDS instance. Keep the pool modest — a
+    # bigger pool just queues work at the database instead of the app (see
+    # app/db/central_session.py). The timeouts below are the important part:
+    # they stop ONE slow/stuck query or transaction from holding a pooled
+    # connection long enough to starve every other request (the "every
+    # endpoint Read timed out at 15s" incident — a burst of heavy
+    # /lmv-snapshot/range queries on a db.t3.micro exhausted the pool while
+    # each call sat there for the client's whole timeout).
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    # Seconds a request waits for a free pooled connection before giving up
+    # (SQLAlchemy QueuePool.pool_timeout). Kept BELOW the desktop client's
+    # 15s HTTP read timeout so a saturated pool fails fast with a clear
+    # error instead of the client timing out on a connection it was never
+    # going to get.
+    db_pool_timeout: int = 10
+    # Recycle a pooled connection after this many seconds so a connection
+    # silently dropped by RDS / a NAT idle timeout is replaced rather than
+    # handed out dead (pool_pre_ping catches the rest).
+    db_pool_recycle: int = 1800
+    # Postgres kills any single statement running longer than this (ms) and
+    # returns the connection to the pool, instead of it blocking for
+    # minutes. 30s comfortably covers the heaviest legitimate query
+    # (/lmv-snapshot/range over ~90 days) with headroom.
+    db_statement_timeout_ms: int = 30000
+    # Postgres kills a connection left idle inside an open transaction this
+    # long (ms) — guards against a handler that errored/hung after BEGIN
+    # without COMMIT/ROLLBACK pinning a connection (and any locks) forever.
+    db_idle_in_transaction_timeout_ms: int = 60000
+
     jwt_secret: str
     jwt_access_expiry_minutes: int = 30
     jwt_refresh_expiry_days: int = 7
