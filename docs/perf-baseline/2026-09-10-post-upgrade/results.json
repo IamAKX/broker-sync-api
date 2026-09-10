@@ -1,0 +1,2269 @@
+{
+  "meta": {
+    "captured_at": "2026-09-10T14:23:36.199836",
+    "captured_at_utc": "2026-09-10T08:53:36.200025+00:00",
+    "base_url": "http://13.206.231.240:8000",
+    "note": "POST-UPGRADE. RDS db.t3.small + tuned param group; EC2 t3.small, gunicorn 3 workers; in-process response cache + LmvDailySnapshotWide read model + connection-pool hardening all deployed. Sequential (not concurrent) probe, 3 reps, pause between calls; a separate concurrent load test is in the session notes.",
+    "reps_per_endpoint": 3
+  },
+  "results": [
+    {
+      "name": "auth.refresh",
+      "method": "POST",
+      "url": "http://13.206.231.240:8000/auth/refresh",
+      "params": {},
+      "heavy": false,
+      "http_status": 401,
+      "bytes": 74,
+      "reps": [
+        {
+          "http_status": 401,
+          "bytes": 74,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 35.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.6,
+          "t_total_ms": 78.9,
+          "wall_ms": 97.9,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 401,
+          "bytes": 74,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 44.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 88.9,
+          "t_total_ms": 89.2,
+          "wall_ms": 114.5,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 401,
+          "bytes": 74,
+          "t_dns_ms": 2.0,
+          "t_connect_ms": 37.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 81.4,
+          "t_total_ms": 81.8,
+          "wall_ms": 105.2,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 81.8,
+      "min_total_ms": 78.9,
+      "max_total_ms": 89.2,
+      "median_ttfb_ms": 81.4
+    },
+    {
+      "name": "auth.me",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/auth/me",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 193,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 193,
+          "t_dns_ms": 2.8,
+          "t_connect_ms": 35.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.1,
+          "t_total_ms": 76.5,
+          "wall_ms": 102.2,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 193,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 35.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.7,
+          "t_total_ms": 77.2,
+          "wall_ms": 103.5,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 193,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 36.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.1,
+          "t_total_ms": 78.6,
+          "wall_ms": 102.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 77.2,
+      "min_total_ms": 76.5,
+      "max_total_ms": 78.6,
+      "median_ttfb_ms": 76.7
+    },
+    {
+      "name": "auth.me.theme",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/auth/me/theme",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 16,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 16,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 34.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.3,
+          "t_total_ms": 75.6,
+          "wall_ms": 92.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 16,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 74.0,
+          "t_total_ms": 74.2,
+          "wall_ms": 99.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 16,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 33.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 72.2,
+          "t_total_ms": 72.7,
+          "wall_ms": 95.7,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 74.2,
+      "min_total_ms": 72.7,
+      "max_total_ms": 75.6,
+      "median_ttfb_ms": 74.0
+    },
+    {
+      "name": "health",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/health",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 15,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 15,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 37.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 73.3,
+          "t_total_ms": 73.7,
+          "wall_ms": 98.7,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 15,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 47.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 95.7,
+          "t_total_ms": 95.9,
+          "wall_ms": 119.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 15,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 53.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 92.0,
+          "t_total_ms": 92.3,
+          "wall_ms": 115.4,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 92.3,
+      "min_total_ms": 73.7,
+      "max_total_ms": 95.9,
+      "median_ttfb_ms": 92.0
+    },
+    {
+      "name": "data.stocks",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/data/stocks",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 32608,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 32608,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 85.2,
+          "t_total_ms": 123.9,
+          "wall_ms": 146.0,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 32608,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 86.8,
+          "t_total_ms": 123.6,
+          "wall_ms": 142.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 32608,
+          "t_dns_ms": 2.0,
+          "t_connect_ms": 36.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 84.7,
+          "t_total_ms": 123.9,
+          "wall_ms": 146.1,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 123.9,
+      "min_total_ms": 123.6,
+      "max_total_ms": 123.9,
+      "median_ttfb_ms": 85.2
+    },
+    {
+      "name": "data.metrics",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/data/metrics",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 12014,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 12014,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 41.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 88.4,
+          "t_total_ms": 88.9,
+          "wall_ms": 105.7,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 12014,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 43.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 89.6,
+          "t_total_ms": 90.7,
+          "wall_ms": 185.0,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 12014,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 36.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 86.0,
+          "t_total_ms": 87.5,
+          "wall_ms": 110.4,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 88.9,
+      "min_total_ms": 87.5,
+      "max_total_ms": 90.7,
+      "median_ttfb_ms": 88.4
+    },
+    {
+      "name": "holidays",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/holidays",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 111,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 111,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 35.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 129.8,
+          "t_total_ms": 130.1,
+          "wall_ms": 147.7,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 111,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 40.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 98.4,
+          "t_total_ms": 98.8,
+          "wall_ms": 120.3,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 111,
+          "t_dns_ms": 2.3,
+          "t_connect_ms": 34.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.3,
+          "t_total_ms": 75.5,
+          "wall_ms": 98.7,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 98.8,
+      "min_total_ms": 75.5,
+      "max_total_ms": 130.1,
+      "median_ttfb_ms": 98.4
+    },
+    {
+      "name": "settings.scheduler_triggers",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/scheduler_triggers",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 340,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 340,
+          "t_dns_ms": 2.6,
+          "t_connect_ms": 38.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 79.9,
+          "t_total_ms": 80.4,
+          "wall_ms": 112.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 340,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 40.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 80.3,
+          "t_total_ms": 80.8,
+          "wall_ms": 109.8,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 340,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 71.6,
+          "t_total_ms": 72.1,
+          "wall_ms": 89.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 80.4,
+      "min_total_ms": 72.1,
+      "max_total_ms": 80.8,
+      "median_ttfb_ms": 79.9
+    },
+    {
+      "name": "settings.main_column_order",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/main_column_order",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 38,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 38,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 70.9,
+          "t_total_ms": 71.2,
+          "wall_ms": 89.9,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 38,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 72.2,
+          "t_total_ms": 72.7,
+          "wall_ms": 96.6,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 38,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 32.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 70.5,
+          "t_total_ms": 70.8,
+          "wall_ms": 93.2,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 71.2,
+      "min_total_ms": 70.8,
+      "max_total_ms": 72.7,
+      "median_ttfb_ms": 70.9
+    },
+    {
+      "name": "settings.custom_strategy_categories",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/custom_strategy_categories",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 53,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 53,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 36.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 79.3,
+          "t_total_ms": 79.7,
+          "wall_ms": 101.3,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 53,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 37.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 80.2,
+          "t_total_ms": 81.4,
+          "wall_ms": 105.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 53,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.2,
+          "t_total_ms": 76.7,
+          "wall_ms": 99.9,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 79.7,
+      "min_total_ms": 76.7,
+      "max_total_ms": 81.4,
+      "median_ttfb_ms": 79.3
+    },
+    {
+      "name": "settings.frozen_columns",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/frozen_columns",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 37,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 37,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 35.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 80.2,
+          "t_total_ms": 80.7,
+          "wall_ms": 106.8,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 37,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.2,
+          "t_total_ms": 78.7,
+          "wall_ms": 101.3,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 37,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.2,
+          "t_total_ms": 78.7,
+          "wall_ms": 102.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 78.7,
+      "min_total_ms": 78.7,
+      "max_total_ms": 80.7,
+      "median_ttfb_ms": 78.2
+    },
+    {
+      "name": "settings.column_categories",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/column_categories",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 40,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 40,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 35.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.4,
+          "t_total_ms": 77.0,
+          "wall_ms": 99.1,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 40,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 35.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 69.7,
+          "t_total_ms": 70.2,
+          "wall_ms": 95.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 40,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 38.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 83.5,
+          "t_total_ms": 84.0,
+          "wall_ms": 108.9,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 77.0,
+      "min_total_ms": 70.2,
+      "max_total_ms": 84.0,
+      "median_ttfb_ms": 76.4
+    },
+    {
+      "name": "settings.conditional_formatting",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/conditional_formatting",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 45,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 45,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 32.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 72.5,
+          "t_total_ms": 72.9,
+          "wall_ms": 96.8,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 45,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 32.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 71.7,
+          "t_total_ms": 72.2,
+          "wall_ms": 96.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 45,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 70.2,
+          "t_total_ms": 70.7,
+          "wall_ms": 96.1,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 72.2,
+      "min_total_ms": 70.7,
+      "max_total_ms": 72.9,
+      "median_ttfb_ms": 71.7
+    },
+    {
+      "name": "settings.alert_window",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/settings/alert_window",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 35,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 35,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.3,
+          "t_total_ms": 77.7,
+          "wall_ms": 94.8,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 35,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 36.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.7,
+          "t_total_ms": 77.2,
+          "wall_ms": 101.0,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 35,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.9,
+          "t_total_ms": 79.3,
+          "wall_ms": 104.5,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 77.7,
+      "min_total_ms": 77.2,
+      "max_total_ms": 79.3,
+      "median_ttfb_ms": 77.3
+    },
+    {
+      "name": "strategies.list",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/strategies",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 365218,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 365218,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 33.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 101.5,
+          "t_total_ms": 244.5,
+          "wall_ms": 272.0,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 365218,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 101.6,
+          "t_total_ms": 247.4,
+          "wall_ms": 271.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 365218,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 34.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 102.2,
+          "t_total_ms": 279.6,
+          "wall_ms": 300.1,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 247.4,
+      "min_total_ms": 244.5,
+      "max_total_ms": 279.6,
+      "median_ttfb_ms": 101.6
+    },
+    {
+      "name": "formula_variables.list",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/formula-variables",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 138825,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 138825,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 33.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 91.4,
+          "t_total_ms": 194.3,
+          "wall_ms": 216.9,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 138825,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 33.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 219.5,
+          "t_total_ms": 326.8,
+          "wall_ms": 351.2,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 138825,
+          "t_dns_ms": 6.4,
+          "t_connect_ms": 39.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 96.2,
+          "t_total_ms": 206.1,
+          "wall_ms": 284.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 206.1,
+      "min_total_ms": 194.3,
+      "max_total_ms": 326.8,
+      "median_ttfb_ms": 96.2
+    },
+    {
+      "name": "strategy_signals.p1",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/strategy-signals?page=1&page_size=25",
+      "params": {
+        "page": 1,
+        "page_size": 25
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 20456,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 20456,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 36.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 112.0,
+          "t_total_ms": 150.4,
+          "wall_ms": 175.5,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 20456,
+          "t_dns_ms": 2.0,
+          "t_connect_ms": 32.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 81.3,
+          "t_total_ms": 117.5,
+          "wall_ms": 143.3,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 20456,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 36.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 90.1,
+          "t_total_ms": 128.4,
+          "wall_ms": 151.5,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 128.4,
+      "min_total_ms": 117.5,
+      "max_total_ms": 150.4,
+      "median_ttfb_ms": 90.1
+    },
+    {
+      "name": "strategy_signals.p1_big",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/strategy-signals?page=1&page_size=100",
+      "params": {
+        "page": 1,
+        "page_size": 100
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 83019,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 83019,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 34.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 93.9,
+          "t_total_ms": 167.8,
+          "wall_ms": 192.1,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 83019,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 35.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 87.5,
+          "t_total_ms": 160.8,
+          "wall_ms": 185.8,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 83019,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 33.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 84.5,
+          "t_total_ms": 154.7,
+          "wall_ms": 182.0,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 160.8,
+      "min_total_ms": 154.7,
+      "max_total_ms": 167.8,
+      "median_ttfb_ms": 87.5
+    },
+    {
+      "name": "strategy_signals.filtered",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/strategy-signals?direction=BUY&status=open&page_size=100",
+      "params": {
+        "direction": "BUY",
+        "status": "open",
+        "page_size": 100
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 82906,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 82906,
+          "t_dns_ms": 2.4,
+          "t_connect_ms": 42.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 100.9,
+          "t_total_ms": 179.4,
+          "wall_ms": 208.8,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 82906,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 35.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 88.7,
+          "t_total_ms": 164.8,
+          "wall_ms": 191.2,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 82906,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 36.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 93.9,
+          "t_total_ms": 166.4,
+          "wall_ms": 198.9,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 166.4,
+      "min_total_ms": 164.8,
+      "max_total_ms": 179.4,
+      "median_ttfb_ms": 93.9
+    },
+    {
+      "name": "opening_range.latest",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/opening-range/latest",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 20095,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 92.1,
+          "t_total_ms": 125.7,
+          "wall_ms": 153.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 80.3,
+          "t_total_ms": 116.3,
+          "wall_ms": 139.5,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 2.8,
+          "t_connect_ms": 38.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 94.2,
+          "t_total_ms": 127.9,
+          "wall_ms": 156.6,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 125.7,
+      "min_total_ms": 116.3,
+      "max_total_ms": 127.9,
+      "median_ttfb_ms": 92.1
+    },
+    {
+      "name": "opening_range.snapshot",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/opening-range/snapshot?date=2026-09-10",
+      "params": {
+        "date": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 20095,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 37.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 87.7,
+          "t_total_ms": 125.0,
+          "wall_ms": 151.1,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 34.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.9,
+          "t_total_ms": 112.4,
+          "wall_ms": 138.2,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 20095,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 35.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 82.0,
+          "t_total_ms": 117.7,
+          "wall_ms": 143.2,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 117.7,
+      "min_total_ms": 112.4,
+      "max_total_ms": 125.0,
+      "median_ttfb_ms": 82.0
+    },
+    {
+      "name": "opening_range.availability",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/opening-range/availability?from=2026-06-07&to=2026-09-10",
+      "params": {
+        "from": "2026-06-07",
+        "to": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 4352,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 4352,
+          "t_dns_ms": 1.9,
+          "t_connect_ms": 44.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 96.9,
+          "t_total_ms": 97.4,
+          "wall_ms": 124.8,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 4352,
+          "t_dns_ms": 1.9,
+          "t_connect_ms": 33.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 79.6,
+          "t_total_ms": 80.1,
+          "wall_ms": 106.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 4352,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 40.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 84.2,
+          "t_total_ms": 84.8,
+          "wall_ms": 114.2,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 84.8,
+      "min_total_ms": 80.1,
+      "max_total_ms": 97.4,
+      "median_ttfb_ms": 84.2
+    },
+    {
+      "name": "lmv.latest",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/latest",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 293280,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 39.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.7,
+          "t_total_ms": 221.3,
+          "wall_ms": 247.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 40.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.1,
+          "t_total_ms": 221.4,
+          "wall_ms": 249.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 70.0,
+          "t_total_ms": 213.3,
+          "wall_ms": 234.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 221.3,
+      "min_total_ms": 213.3,
+      "max_total_ms": 221.4,
+      "median_ttfb_ms": 75.7
+    },
+    {
+      "name": "lmv.snapshot_date",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/snapshot?date=2026-09-09",
+      "params": {
+        "date": "2026-09-09"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 293280,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 36.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 235.0,
+          "t_total_ms": 390.0,
+          "wall_ms": 411.7,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 40.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.4,
+          "t_total_ms": 216.1,
+          "wall_ms": 242.0,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 293280,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 40.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.6,
+          "t_total_ms": 218.5,
+          "wall_ms": 250.2,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 218.5,
+      "min_total_ms": 216.1,
+      "max_total_ms": 390.0,
+      "median_ttfb_ms": 76.6
+    },
+    {
+      "name": "lmv.range_20",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/range?days=20",
+      "params": {
+        "days": 20
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 5652941,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 5652941,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 1079.7,
+          "t_total_ms": 3408.5,
+          "wall_ms": 3433.3,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 5652941,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 40.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.8,
+          "t_total_ms": 752.1,
+          "wall_ms": 778.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 5652941,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 42.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.8,
+          "t_total_ms": 656.5,
+          "wall_ms": 683.6,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 752.1,
+      "min_total_ms": 656.5,
+      "max_total_ms": 3408.5,
+      "median_ttfb_ms": 78.8
+    },
+    {
+      "name": "lmv.range_60",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/range?days=60",
+      "params": {
+        "days": 60
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 10384870,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 39.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.6,
+          "t_total_ms": 1291.2,
+          "wall_ms": 1319.3,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 2.7,
+          "t_connect_ms": 41.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.4,
+          "t_total_ms": 1050.3,
+          "wall_ms": 1079.1,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 41.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 84.3,
+          "t_total_ms": 1216.4,
+          "wall_ms": 1240.0,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 1216.4,
+      "min_total_ms": 1050.3,
+      "max_total_ms": 1291.2,
+      "median_ttfb_ms": 77.4
+    },
+    {
+      "name": "lmv.range_90",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/range?days=90",
+      "params": {
+        "days": 90
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 10384870,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 72.6,
+          "t_total_ms": 1874.5,
+          "wall_ms": 1899.9,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 41.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.9,
+          "t_total_ms": 1049.1,
+          "wall_ms": 1075.3,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 10384870,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 39.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 75.5,
+          "t_total_ms": 1077.8,
+          "wall_ms": 1103.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 1077.8,
+      "min_total_ms": 1049.1,
+      "max_total_ms": 1874.5,
+      "median_ttfb_ms": 75.5
+    },
+    {
+      "name": "lmv.availability_1y",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/lmv-snapshot/availability?from=2025-09-15&to=2026-09-10",
+      "params": {
+        "from": "2025-09-15",
+        "to": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 16267,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 16267,
+          "t_dns_ms": 2.3,
+          "t_connect_ms": 34.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 183.3,
+          "t_total_ms": 218.4,
+          "wall_ms": 243.5,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 16267,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 35.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 187.1,
+          "t_total_ms": 221.4,
+          "wall_ms": 239.6,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 16267,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 34.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 189.3,
+          "t_total_ms": 226.7,
+          "wall_ms": 249.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 221.4,
+      "min_total_ms": 218.4,
+      "max_total_ms": 226.7,
+      "median_ttfb_ms": 187.1
+    },
+    {
+      "name": "historic.latest",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/latest",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 36472,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 1.9,
+          "t_connect_ms": 40.0,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 95.0,
+          "t_total_ms": 131.1,
+          "wall_ms": 152.1,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 40.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.4,
+          "t_total_ms": 119.4,
+          "wall_ms": 145.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 2.0,
+          "t_connect_ms": 41.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 100.1,
+          "t_total_ms": 137.6,
+          "wall_ms": 167.1,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 131.1,
+      "min_total_ms": 119.4,
+      "max_total_ms": 137.6,
+      "median_ttfb_ms": 95.0
+    },
+    {
+      "name": "historic.snapshot_date",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/snapshot?date=2026-09-09",
+      "params": {
+        "date": "2026-09-09"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 36472,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 1.9,
+          "t_connect_ms": 35.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 87.9,
+          "t_total_ms": 127.6,
+          "wall_ms": 146.2,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 2.9,
+          "t_connect_ms": 35.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 89.2,
+          "t_total_ms": 129.0,
+          "wall_ms": 156.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 36472,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 35.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.6,
+          "t_total_ms": 117.8,
+          "wall_ms": 153.5,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 127.6,
+      "min_total_ms": 117.8,
+      "max_total_ms": 129.0,
+      "median_ttfb_ms": 87.9
+    },
+    {
+      "name": "historic.range_20",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/range?days=20",
+      "params": {
+        "days": 20
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 726632,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 726632,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 40.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 2106.1,
+          "t_total_ms": 3217.9,
+          "wall_ms": 3241.7,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 726632,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 42.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 2059.8,
+          "t_total_ms": 3155.0,
+          "wall_ms": 3181.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 726632,
+          "t_dns_ms": 2.1,
+          "t_connect_ms": 33.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 1103.7,
+          "t_total_ms": 2192.5,
+          "wall_ms": 2218.7,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 3155.0,
+      "min_total_ms": 2192.5,
+      "max_total_ms": 3217.9,
+      "median_ttfb_ms": 2059.8
+    },
+    {
+      "name": "historic.range_60",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/range?days=60",
+      "params": {
+        "days": 60
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 2186838,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 2186838,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 40.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.3,
+          "t_total_ms": 415.8,
+          "wall_ms": 444.4,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 2186838,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 43.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.9,
+          "t_total_ms": 413.8,
+          "wall_ms": 439.2,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 2186838,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 77.7,
+          "t_total_ms": 398.5,
+          "wall_ms": 431.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 413.8,
+      "min_total_ms": 398.5,
+      "max_total_ms": 415.8,
+      "median_ttfb_ms": 77.7
+    },
+    {
+      "name": "historic.range_120",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/range?days=120",
+      "params": {
+        "days": 120
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 3317020,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 3317020,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 34.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 70.3,
+          "t_total_ms": 463.2,
+          "wall_ms": 484.9,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 3317020,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 39.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 79.8,
+          "t_total_ms": 481.2,
+          "wall_ms": 513.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 3317020,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 42.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 78.4,
+          "t_total_ms": 499.6,
+          "wall_ms": 523.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 481.2,
+      "min_total_ms": 463.2,
+      "max_total_ms": 499.6,
+      "median_ttfb_ms": 78.4
+    },
+    {
+      "name": "historic.timeseries_1y",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/timeseries?symbol=RELIANCE&metric=Close&from=2025-09-15&to=2026-09-10",
+      "params": {
+        "symbol": "RELIANCE",
+        "metric": "Close",
+        "from": "2025-09-15",
+        "to": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 3963,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 3963,
+          "t_dns_ms": 2.2,
+          "t_connect_ms": 36.3,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 90.7,
+          "t_total_ms": 91.2,
+          "wall_ms": 110.2,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 3963,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 34.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 82.5,
+          "t_total_ms": 83.0,
+          "wall_ms": 119.0,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 3963,
+          "t_dns_ms": 3.2,
+          "t_connect_ms": 42.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 88.8,
+          "t_total_ms": 89.2,
+          "wall_ms": 116.4,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 89.2,
+      "min_total_ms": 83.0,
+      "max_total_ms": 91.2,
+      "median_ttfb_ms": 88.8
+    },
+    {
+      "name": "historic.availability_1y",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/historic/availability?from=2025-09-15&to=2026-09-10",
+      "params": {
+        "from": "2025-09-15",
+        "to": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 16213,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 16213,
+          "t_dns_ms": 2.1,
+          "t_connect_ms": 42.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 106.4,
+          "t_total_ms": 143.4,
+          "wall_ms": 165.4,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 16213,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 42.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 106.8,
+          "t_total_ms": 139.3,
+          "wall_ms": 164.5,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 16213,
+          "t_dns_ms": 2.7,
+          "t_connect_ms": 41.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 109.4,
+          "t_total_ms": 141.7,
+          "wall_ms": 168.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 141.7,
+      "min_total_ms": 139.3,
+      "max_total_ms": 143.4,
+      "median_ttfb_ms": 106.8
+    },
+    {
+      "name": "inception.instruments",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/instruments",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 31920,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 31920,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 42.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 91.0,
+          "t_total_ms": 129.1,
+          "wall_ms": 153.2,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 31920,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 40.8,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 90.6,
+          "t_total_ms": 128.5,
+          "wall_ms": 154.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 31920,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 954.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 1014.6,
+          "t_total_ms": 1060.6,
+          "wall_ms": 1088.0,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 129.1,
+      "min_total_ms": 128.5,
+      "max_total_ms": 1060.6,
+      "median_ttfb_ms": 91.0
+    },
+    {
+      "name": "inception.availability_1y",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/availability?from=2025-09-15&to=2026-09-10",
+      "params": {
+        "from": "2025-09-15",
+        "to": "2026-09-10"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 16059,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 16059,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 145.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 214.1,
+          "t_total_ms": 273.9,
+          "wall_ms": 300.1,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 16059,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 44.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 110.5,
+          "t_total_ms": 157.5,
+          "wall_ms": 179.1,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 16059,
+          "t_dns_ms": 2.1,
+          "t_connect_ms": 45.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 96.7,
+          "t_total_ms": 147.4,
+          "wall_ms": 173.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 157.5,
+      "min_total_ms": 147.4,
+      "max_total_ms": 273.9,
+      "median_ttfb_ms": 110.5
+    },
+    {
+      "name": "inception.strategies",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/strategies",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 10780,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 10780,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 48.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 109.6,
+          "t_total_ms": 110.3,
+          "wall_ms": 138.4,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 10780,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 40.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 97.4,
+          "t_total_ms": 99.9,
+          "wall_ms": 125.1,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 10780,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 33.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 80.5,
+          "t_total_ms": 81.4,
+          "wall_ms": 99.1,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 99.9,
+      "min_total_ms": 81.4,
+      "max_total_ms": 110.3,
+      "median_ttfb_ms": 97.4
+    },
+    {
+      "name": "inception.formula_variables",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/formula-variables",
+      "params": {},
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 823,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 823,
+          "t_dns_ms": 2.2,
+          "t_connect_ms": 42.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 98.0,
+          "t_total_ms": 99.1,
+          "wall_ms": 139.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 823,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 38.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 83.4,
+          "t_total_ms": 83.6,
+          "wall_ms": 108.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 823,
+          "t_dns_ms": 1.3,
+          "t_connect_ms": 44.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 98.1,
+          "t_total_ms": 98.5,
+          "wall_ms": 118.9,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 98.5,
+      "min_total_ms": 83.6,
+      "max_total_ms": 99.1,
+      "median_ttfb_ms": 98.0
+    },
+    {
+      "name": "inception.bars_1sym_1mo",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/bars?from=2026-08-09&to=2026-09-10&symbols=RELIANCE_I",
+      "params": {
+        "from": "2026-08-09",
+        "to": "2026-09-10",
+        "symbols": "RELIANCE_I"
+      },
+      "heavy": false,
+      "http_status": 200,
+      "bytes": 12822,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 12822,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 40.2,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 97.2,
+          "t_total_ms": 133.4,
+          "wall_ms": 157.0,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 12822,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 43.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 81.8,
+          "t_total_ms": 117.0,
+          "wall_ms": 141.3,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 12822,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 40.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.5,
+          "t_total_ms": 111.8,
+          "wall_ms": 134.3,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 117.0,
+      "min_total_ms": 111.8,
+      "max_total_ms": 133.4,
+      "median_ttfb_ms": 81.8
+    },
+    {
+      "name": "inception.bars_5sym_1qtr",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/bars?from=2026-06-07&to=2026-09-10&symbols=RELIANCE_I&symbols=TCS_I&symbols=INFY_I&symbols=HDFCBANK_I&symbols=ICICIBANK_I",
+      "params": {
+        "from": "2026-06-07",
+        "to": "2026-09-10",
+        "symbols": [
+          "RELIANCE_I",
+          "TCS_I",
+          "INFY_I",
+          "HDFCBANK_I",
+          "ICICIBANK_I"
+        ]
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 176808,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 176808,
+          "t_dns_ms": 1.4,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 102.6,
+          "t_total_ms": 219.1,
+          "wall_ms": 242.0,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 176808,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 36.6,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 106.0,
+          "t_total_ms": 218.9,
+          "wall_ms": 242.4,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 176808,
+          "t_dns_ms": 1.5,
+          "t_connect_ms": 49.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 91.7,
+          "t_total_ms": 209.8,
+          "wall_ms": 235.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 218.9,
+      "min_total_ms": 209.8,
+      "max_total_ms": 219.1,
+      "median_ttfb_ms": 102.6
+    },
+    {
+      "name": "inception.bars_all_1mo",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/bars?from=2026-08-09&to=2026-09-10",
+      "params": {
+        "from": "2026-08-09",
+        "to": "2026-09-10"
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 2695153,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 2695153,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 43.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 391.0,
+          "t_total_ms": 816.1,
+          "wall_ms": 846.6,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 2695153,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 40.7,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 758.4,
+          "t_total_ms": 3527.6,
+          "wall_ms": 3550.7,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 2695153,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 33.9,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 388.4,
+          "t_total_ms": 812.7,
+          "wall_ms": 835.8,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 816.1,
+      "min_total_ms": 812.7,
+      "max_total_ms": 3527.6,
+      "median_ttfb_ms": 391.0
+    },
+    {
+      "name": "inception.bars_all_1yr",
+      "method": "GET",
+      "url": "http://13.206.231.240:8000/inception/bars?from=2025-09-15&to=2026-09-10",
+      "params": {
+        "from": "2025-09-15",
+        "to": "2026-09-10"
+      },
+      "heavy": true,
+      "http_status": 200,
+      "bytes": 25511934,
+      "reps": [
+        {
+          "http_status": 200,
+          "bytes": 25511934,
+          "t_dns_ms": 1.8,
+          "t_connect_ms": 37.4,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 76.6,
+          "t_total_ms": 2430.1,
+          "wall_ms": 2459.0,
+          "curl_err": null,
+          "rep": 1
+        },
+        {
+          "http_status": 200,
+          "bytes": 25511934,
+          "t_dns_ms": 1.7,
+          "t_connect_ms": 42.1,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 85.1,
+          "t_total_ms": 2719.6,
+          "wall_ms": 2740.9,
+          "curl_err": null,
+          "rep": 2
+        },
+        {
+          "http_status": 200,
+          "bytes": 25511934,
+          "t_dns_ms": 1.6,
+          "t_connect_ms": 43.5,
+          "t_tls_ms": 0.0,
+          "t_ttfb_ms": 84.7,
+          "t_total_ms": 2527.3,
+          "wall_ms": 2555.5,
+          "curl_err": null,
+          "rep": 3
+        }
+      ],
+      "median_total_ms": 2527.3,
+      "min_total_ms": 2430.1,
+      "max_total_ms": 2719.6,
+      "median_ttfb_ms": 84.7
+    }
+  ]
+}

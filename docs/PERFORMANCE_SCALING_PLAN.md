@@ -64,15 +64,47 @@ The failures are **not** a network, application-code, or CPU problem.
 
 ---
 
-## 3. Already shipped
+## 3. Shipped — the read-timeout fix (2026-09-10)
 
-| Change | Repo / commit | Effect |
-|---|---|---|
-| `/lmv-snapshot/range` fetched **once per window** instead of once per distinct N-day window | `broker-file-sync` `574d3d6` | 3-strategy N-Day apply: 2–3 heavy calls → **1** |
-| N-Day refresh: 15 s "warm" timeout, exponential backoff, serve last-good on failure; explicit "↻ N-Day Data" bypasses backoff | `broker-file-sync` `574d3d6` | a slow backend costs one ~15 s stall, not one per toggle; LMV stays responsive |
-| `get_range()` accepts a `timeout` override | `broker-file-sync` `574d3d6` | enables the warm/cold split above |
-| **Connection-pool hardening** — `statement_timeout=30 s`, `idle_in_transaction_session_timeout=60 s`, `pool_timeout 30→10 s`, `pool_recycle=1800 s`, `application_name` per engine, shared `engine_config.py` | `broker-sync-api` `e4713a8` (deployed) | a runaway query is killed by Postgres and its connection returned; a saturated pool fails fast (below the client's 15 s) instead of hanging |
-| Conditional-formatting `THIS` no longer hard-blocks (issue #37) | `broker-file-sync` `574d3d6` | unrelated to latency, shipped same batch |
+**All deployed and load-tested. Result: 0 timeouts under a 12-concurrent
+stress test (~3× realistic peak); `/lmv-snapshot/range` server-side median
+**1 ms** on a cache hit; no worker OOM/kills; small endpoints stay
+70–230 ms under stress.** Pre/post numbers: `docs/perf-baseline/`.
+
+### Infrastructure
+
+| Change | Effect |
+|---|---|
+| **RDS `db.t3.micro` → `db.t3.small`** (1 → 2 GB), `--apply-immediately` | FreeableMemory ~35 MB → ~910 MB, SwapUsage ~42 MB → **0** — swap-thrash gone |
+| **Custom parameter group `brokersync-pg16`** — `work_mem` 4 → 16 MB, `log_min_duration_statement` = 1 s, `track_io_timing` on (`statement_timeout` deliberately left 0 here so alembic migrations aren't killed — the API engines set 30 s per-connection) | big sorts stop disk-spilling; slow queries logged |
+| **Performance Insights** on (7-day), **backup retention 1 → 7 days** | diagnostics + safety |
+| **EC2 `t3.micro` → `t3.small`** (1 → 2 GB), stop/modify/start, Elastic IP unchanged | workers stop OOM-ing under concurrent heavy requests |
+| gunicorn **2 → 3 workers**, `--timeout 120`, `--max-requests 2000 --max-requests-jitter 200` (`startup.sh` + the systemd unit) | absorb concurrency; a slow request isn't mistaken for a hung worker; buffer creep is recycled away |
+| 6 CloudWatch alarms (`brokersync-db-*`: FreeableMemory, SwapUsage, CPU, connections, ReadLatency, FreeStorage) — state-only, no SNS | visibility |
+| AZ move (planned I7) — **not done**: `modify-db-instance` can't change a Single-AZ instance's AZ in place; needs snapshot-restore. Minor cost item only, deferred. | — |
+
+### Backend code (`broker-sync-api`)
+
+| Commit | Change |
+|---|---|
+| `e4713a8` | **Connection-pool hardening** — `statement_timeout=30 s`, `idle_in_transaction_session_timeout=60 s`, `pool_timeout 30→10 s`, `pool_recycle=1800 s`, `application_name` per engine, shared `app/db/engine_config.py` |
+| `2881da5` | **In-process response cache** (`app/core/cache.py`, `TTLCache` + tag-group invalidation) on `/lmv-snapshot/range`,`/snapshot`,`/latest`, `/historic/range`,`/snapshot`,`/latest`, `/inception/bars`, `/settings/{key}` — invalidated on the matching upload/delete/PUT. `*_payload()` service variants build a plain dict off the event loop. |
+| `6b5d54b` | **`LmvDailySnapshotWide`** pre-pivoted read model — one JSONB row per (trade_date, stock), written in the same txn as the EAV rows; `get_snapshot_range_payload` reads it once `wide_table_ready()`, else falls back to the EAV pivot. `scripts/backfill_lmv_wide.py` (idempotent `INSERT … jsonb_object_agg … ON CONFLICT` per schema) ran for all tenants. Payload 10 MB → 1–3 MB, pivot ~75× cheaper. |
+| `bcca82d` | **Single-flight** `get_or_set` — a burst of identical cache misses runs the producer once, the rest await it (kills the toggle-storm thundering herd). |
+| `97ca080` | **`cached_response()`** caches an `_Encoded` (orjson bytes + gzip bytes, built once off-thread) — a cache hit just sends the right bytes by `Accept-Encoding`; no per-request re-serialize/re-gzip (that was ~1.7–4 s on the event loop even when the value was cached). |
+
+### Client (`broker-file-sync` `574d3d6`)
+
+- `/lmv-snapshot/range` fetched **once per window** (was once per distinct N-day window)
+- N-Day refresh: 15 s warm timeout + exponential backoff + serve last-good; "↻ N-Day Data" bypasses backoff
+- `get_range()` `timeout` override
+- (bundled) conditional-formatting `THIS` no longer hard-blocks — issue #37
+
+### Still open (lower priority, none blocking the timeout fix)
+
+- **`ElastiCache` (Redis/Valkey)** — the in-process cache is per-worker, so each of the 3 workers warms independently and a write invalidates only the serving worker. A shared cache makes hits consistent and cross-worker. **~$12/mo**, worth it if the per-worker warm-up latency is noticeable.
+- **`/inception/bars` has no authentication** (`get_central_db` only, no `get_current_user`) — EodBar data is publicly readable. Separate security fix.
+- Historic-table wide model (C2 for `HistoricalStockValue`), EAV partitioning (D2), server-side scheduled jobs (C5), incremental range fetch (CL2), non-blocking client startup (CL1).
 
 ---
 
