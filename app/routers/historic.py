@@ -1,10 +1,9 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import ORJSONResponse
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cache import cache, get_or_set, historic_tag
+from app.core.cache import cache, cached_response, historic_tag
 from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_tenant_db
 from app.schemas.historic import (
@@ -37,44 +36,44 @@ async def daily_upload(
 
 @router.get("/snapshot", response_model=SnapshotResponse)
 async def snapshot(
+    request: Request,
     date_param: date | None = Query(default=None, alias="date"),
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
 ):
     schema = current_user.schema_name
     key = f"hist-snapshot:{schema}:{date_param.isoformat() if date_param else 'latest'}"
-    payload = await get_or_set(
-        key, _SNAPSHOT_TTL, [historic_tag(schema)],
+    return await cached_response(
+        request, key, _SNAPSHOT_TTL, [historic_tag(schema)],
         lambda: historical_service.get_snapshot_payload(session, date_param),
     )
-    return ORJSONResponse(payload)
 
 
 @router.get("/latest", response_model=SnapshotResponse)
 async def latest(
+    request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
 ):
     schema = current_user.schema_name
-    payload = await get_or_set(
-        f"hist-snapshot:{schema}:latest", _SNAPSHOT_TTL, [historic_tag(schema)],
+    return await cached_response(
+        request, f"hist-snapshot:{schema}:latest", _SNAPSHOT_TTL, [historic_tag(schema)],
         lambda: historical_service.get_snapshot_payload(session, None),
     )
-    return ORJSONResponse(payload)
 
 
 @router.get("/range", response_model=SnapshotRangeResponse)
 async def snapshot_range(
+    request: Request,
     days: int = Query(default=20, ge=1, le=120),
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
 ):
     schema = current_user.schema_name
-    payload = await get_or_set(
-        f"hist-range:{schema}:{days}", _RANGE_TTL, [historic_tag(schema)],
+    return await cached_response(
+        request, f"hist-range:{schema}:{days}", _RANGE_TTL, [historic_tag(schema)],
         lambda: historical_service.get_snapshot_range_payload(session, days),
     )
-    return ORJSONResponse(payload)
 
 
 @router.get("/timeseries", response_model=TimeseriesResponse)

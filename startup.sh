@@ -13,7 +13,7 @@ set -e
 
 exec gunicorn app.main:app \
   --worker-class uvicorn.workers.UvicornWorker \
-  --workers 4 \
+  --workers 3 \
   --bind 0.0.0.0:8000 \
   --timeout 120 \
   --graceful-timeout 30 \

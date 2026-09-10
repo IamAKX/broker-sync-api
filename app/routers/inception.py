@@ -1,10 +1,9 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import ORJSONResponse
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cache import cache, get_or_set
+from app.core.cache import cache, cached_response
 from app.core.deps import CurrentUser, get_current_user, require_admin_email
 from app.db.deps import get_central_db, get_tenant_db
 from app.schemas.inception import (
@@ -54,6 +53,7 @@ async def instruments(central_session: AsyncSession = Depends(get_central_db)) -
 
 @router.get("/bars", response_model=BarsResponse)
 async def bars(
+    request: Request,
     date_from: date = Query(alias="from"),
     date_to: date = Query(alias="to"),
     symbols: list[str] = Query(default_factory=list),
@@ -61,11 +61,10 @@ async def bars(
 ):
     sym_key = ",".join(sorted(symbols)) if symbols else "ALL"
     key = f"inception-bars:{date_from.isoformat()}:{date_to.isoformat()}:{sym_key}"
-    payload = await get_or_set(
-        key, _BARS_TTL, [_INCEPTION_TAG],
+    return await cached_response(
+        request, key, _BARS_TTL, [_INCEPTION_TAG],
         lambda: inception_service.get_bars_payload(central_session, date_from, date_to, symbols or None),
     )
-    return ORJSONResponse(payload)
 
 
 @router.post("/vendor-sync", response_model=VendorSyncResponse)

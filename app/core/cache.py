@@ -17,10 +17,14 @@ the hot path.
 
 from __future__ import annotations
 
+import gzip as _gzip
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
+
+from starlette.requests import Request
+from starlette.responses import Response
 
 
 class TTLCache:
@@ -139,6 +143,54 @@ async def get_or_set(
         value = await producer()
         cache.set(key, value, ttl, tags)
         return value
+
+
+class _Encoded:
+    """A response body serialized once and gzipped once, at cache-fill
+    time. On a hit the endpoint just picks plain vs gzip bytes by the
+    request's Accept-Encoding and sends them — no per-request orjson
+    encode, no per-request gzip (both were ~1-4s on the event loop for a
+    ~3MB /lmv-snapshot/range payload, even when the value itself was
+    cached)."""
+
+    __slots__ = ("json", "gz")
+
+    def __init__(self, payload: Any) -> None:
+        import orjson  # lazy — no prebuilt wheel on some dev pythons (mirrors fastapi's ORJSONResponse)
+
+        self.json = orjson.dumps(payload)
+        self.gz = _gzip.compress(self.json, compresslevel=6)
+
+
+async def cached_response(
+    request: Request,
+    key: str,
+    ttl: float,
+    tags: Iterable[str],
+    producer: Callable[[], Awaitable[Any]],
+) -> Response:
+    """get_or_set + serialize-once. *producer* returns a JSON-ready
+    dict/list; the encoded form is what's cached."""
+    import asyncio
+
+    enc = cache.get(key)
+    if enc is None:
+        lock = _key_locks.get(key)
+        if lock is None:
+            lock = _key_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            enc = cache.get(key)
+            if enc is None:
+                payload = await producer()
+                enc = await asyncio.to_thread(_Encoded, payload)
+                cache.set(key, enc, ttl, tags)
+
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        return Response(
+            enc.gz, media_type="application/json",
+            headers={"content-encoding": "gzip", "content-length": str(len(enc.gz))},
+        )
+    return Response(enc.json, media_type="application/json")
 
 
 # ── tag / key helpers (single source of truth for cache-key shapes) ──────
