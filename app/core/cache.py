@@ -104,9 +104,13 @@ class TTLCache:
 
 cache = TTLCache()
 
-import logging as _logging  # noqa: E402
-
-_log = _logging.getLogger("app.cache")
+# One asyncio.Lock per key so a burst of identical cache misses (many
+# clients toggling the same strategy at once) runs the expensive producer
+# ONCE and the rest await that result — instead of all of them hitting the
+# DB + pivot + serialize at the same time and starving the worker pool.
+# Keys are bounded (schemas x endpoints x day-counts ~= a few dozen), so
+# the lock dict is never pruned.
+_key_locks: dict[str, Any] = {}
 
 
 async def get_or_set(
@@ -117,21 +121,24 @@ async def get_or_set(
 ) -> Any:
     """Return the cached value for *key*, else run *producer* (an async
     callable returning a serialization-ready dict/list), cache it, return it.
+    Single-flighted per key."""
+    import asyncio
 
-    Not locked across the producer call on purpose: a cache miss under
-    concurrency may run *producer* more than once (a brief thundering herd
-    on the very first request after expiry), which is cheaper and simpler
-    than holding the lock through a multi-second DB+pivot call.
-    """
     hit = cache.get(key)
     if hit is not None:
-        _log.info("cache HIT %s", key)
         return hit
-    _log.info("cache MISS %s", key)
-    value = await producer()
-    cache.set(key, value, ttl, tags)
-    _log.info("cache SET %s entries=%d", key, cache.stats()["entries"])
-    return value
+
+    lock = _key_locks.get(key)
+    if lock is None:
+        lock = _key_locks.setdefault(key, asyncio.Lock())
+
+    async with lock:
+        hit = cache.get(key)  # a coroutine ahead of us may have just filled it
+        if hit is not None:
+            return hit
+        value = await producer()
+        cache.set(key, value, ttl, tags)
+        return value
 
 
 # ── tag / key helpers (single source of truth for cache-key shapes) ──────
