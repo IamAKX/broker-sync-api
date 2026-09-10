@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,6 +143,50 @@ async def get_snapshot_range(session: AsyncSession, days: int) -> SnapshotRangeR
     return SnapshotRangeResponse(
         days=[_pivot_snapshot(d, rows_by_date[d]) for d in trade_dates]
     )
+
+
+# ── serialization-ready ("payload") variants for the cached hot path ─────
+# See lmv_snapshot_service's equivalent block for the rationale (plain
+# dicts, pivot off the event loop via asyncio.to_thread).
+
+def _pivot_day_to_dict(trade_date: date, rows) -> dict:
+    by_symbol: dict[str, dict] = {}
+    for row in rows:
+        symbol = row["symbol"]
+        entry = by_symbol.get(symbol)
+        if entry is None:
+            entry = {"symbol": symbol, "display_name": row["display_name"], "metrics": {}}
+            by_symbol[symbol] = entry
+        vn = row["value_number"]
+        entry["metrics"][row["metric_name"]] = float(vn) if vn is not None else row["value_text"]
+    return {"trade_date": trade_date.isoformat(), "stocks": list(by_symbol.values())}
+
+
+def _build_range_payload(trade_dates: list[date], rows) -> dict:
+    rows_by_date: dict[date, list] = {d: [] for d in trade_dates}
+    for row in rows:
+        rows_by_date[row["trade_date"]].append(row)
+    return {"days": [_pivot_day_to_dict(d, rows_by_date[d]) for d in trade_dates]}
+
+
+async def get_snapshot_range_payload(session: AsyncSession, days: int) -> dict:
+    if days < 1:
+        raise InvalidDateRangeError("days must be at least 1")
+    if days > _MAX_SNAPSHOT_RANGE_DAYS:
+        raise InvalidDateRangeError(f"days cannot exceed {_MAX_SNAPSHOT_RANGE_DAYS}")
+    trade_dates = await fetch_recent_trade_dates(session, days)
+    if not trade_dates:
+        return {"days": []}
+    rows = await fetch_snapshot_rows_for_dates(session, trade_dates)
+    return await asyncio.to_thread(_build_range_payload, trade_dates, rows)
+
+
+async def get_snapshot_payload(session: AsyncSession, trade_date: date | None) -> dict:
+    resolved_date = trade_date or await fetch_latest_trade_date(session)
+    if resolved_date is None:
+        return {"trade_date": date.today().isoformat(), "stocks": []}
+    rows = await fetch_snapshot_rows(session, resolved_date)
+    return await asyncio.to_thread(_pivot_day_to_dict, resolved_date, rows)
 
 
 async def get_timeseries(

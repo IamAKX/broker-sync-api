@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import date, timedelta
 
@@ -94,6 +95,51 @@ async def get_bars(
         symbols = [i.symbol for i in canonical]
 
     rows = await instrument_repo.get_bars_in_range(central_session, date_from, date_to, symbols)
+    return _bars_response(date_from, date_to, rows)
+
+
+_BAR_FLOAT_FIELDS = (
+    "avg_rate", "patp", "pwatp", "pmatp", "cwatp", "cmatp", "day_to", "pdto",
+    "cwto", "pwto", "call_strike_highest_oi", "call_strike_with_second_highest_oi",
+    "put_strike_with_second_highest_oi", "today_put_highest_strike", "max_pain",
+    "vah", "poc", "val", "or_high", "or_low",
+)
+
+
+def _bars_payload(date_from: date, date_to: date, rows) -> dict:
+    """Serialization-ready dict for the cached hot path (see
+    lmv_snapshot_service). Run via asyncio.to_thread — ~1.5M float() calls
+    for a 1-year all-instrument request otherwise block the event loop."""
+    out = []
+    for r in rows:
+        row = {
+            "symbol": r["symbol"], "trade_date": r["trade_date"].isoformat(),
+            "open": float(r["open"]), "high": float(r["high"]),
+            "low": float(r["low"]), "close": float(r["close"]),
+            "volume": r["volume"], "open_interest": r["open_interest"],
+        }
+        for f in _BAR_FLOAT_FIELDS:
+            v = r[f]
+            row[f] = float(v) if v is not None else None
+        out.append(row)
+    return {"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "rows": out}
+
+
+async def get_bars_payload(
+    central_session: AsyncSession, date_from: date, date_to: date, symbols: list[str] | None = None,
+) -> dict:
+    if date_from > date_to:
+        raise InvalidDateRangeError("date_from must be on or before date_to")
+    if (date_to - date_from).days > _MAX_BARS_RANGE_DAYS:
+        raise InvalidDateRangeError(f"date range cannot exceed {_MAX_BARS_RANGE_DAYS} days")
+    if not symbols:
+        canonical = await instrument_repo.get_canonical_instruments(central_session)
+        symbols = [i.symbol for i in canonical]
+    rows = await instrument_repo.get_bars_in_range(central_session, date_from, date_to, symbols)
+    return await asyncio.to_thread(_bars_payload, date_from, date_to, rows)
+
+
+def _bars_response(date_from: date, date_to: date, rows) -> BarsResponse:
     return BarsResponse(
         date_from=date_from, date_to=date_to,
         rows=[

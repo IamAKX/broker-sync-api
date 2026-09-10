@@ -1,8 +1,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache, get_or_set, historic_tag
+from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_tenant_db
 from app.schemas.historic import (
     DateAvailabilityResponse,
@@ -17,33 +20,61 @@ from app.services import historical_service
 
 router = APIRouter(prefix="/historic", tags=["historic"])
 
+_RANGE_TTL = 600
+_SNAPSHOT_TTL = 600
+
 
 @router.post("/daily-upload", response_model=UploadResponse)
 async def daily_upload(
-    payload: UploadRequest, session: AsyncSession = Depends(get_tenant_db)
+    payload: UploadRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
 ) -> UploadResponse:
-    return await historical_service.upsert_historical_upload(session, payload)
+    result = await historical_service.upsert_historical_upload(session, payload)
+    cache.invalidate_tag(historic_tag(current_user.schema_name))
+    return result
 
 
 @router.get("/snapshot", response_model=SnapshotResponse)
 async def snapshot(
     date_param: date | None = Query(default=None, alias="date"),
+    current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
-) -> SnapshotResponse:
-    return await historical_service.get_snapshot(session, date_param)
+):
+    schema = current_user.schema_name
+    key = f"hist-snapshot:{schema}:{date_param.isoformat() if date_param else 'latest'}"
+    payload = await get_or_set(
+        key, _SNAPSHOT_TTL, [historic_tag(schema)],
+        lambda: historical_service.get_snapshot_payload(session, date_param),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/latest", response_model=SnapshotResponse)
-async def latest(session: AsyncSession = Depends(get_tenant_db)) -> SnapshotResponse:
-    return await historical_service.get_snapshot(session, None)
+async def latest(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+):
+    schema = current_user.schema_name
+    payload = await get_or_set(
+        f"hist-snapshot:{schema}:latest", _SNAPSHOT_TTL, [historic_tag(schema)],
+        lambda: historical_service.get_snapshot_payload(session, None),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/range", response_model=SnapshotRangeResponse)
 async def snapshot_range(
     days: int = Query(default=20, ge=1, le=120),
+    current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
-) -> SnapshotRangeResponse:
-    return await historical_service.get_snapshot_range(session, days)
+):
+    schema = current_user.schema_name
+    payload = await get_or_set(
+        f"hist-range:{schema}:{days}", _RANGE_TTL, [historic_tag(schema)],
+        lambda: historical_service.get_snapshot_range_payload(session, days),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/timeseries", response_model=TimeseriesResponse)
@@ -68,6 +99,10 @@ async def availability(
 
 @router.delete("/{trade_date}", response_model=DeleteDayResponse)
 async def delete_day(
-    trade_date: date, session: AsyncSession = Depends(get_tenant_db)
+    trade_date: date,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
 ) -> DeleteDayResponse:
-    return await historical_service.delete_historical_day(session, trade_date)
+    result = await historical_service.delete_historical_day(session, trade_date)
+    cache.invalidate_tag(historic_tag(current_user.schema_name))
+    return result

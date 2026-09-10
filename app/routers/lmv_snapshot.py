@@ -1,8 +1,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache, get_or_set, lmv_snapshot_tag
+from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_tenant_db
 from app.schemas.historic import (
     DateAvailabilityResponse,
@@ -15,33 +18,64 @@ from app.services import lmv_snapshot_service
 
 router = APIRouter(prefix="/lmv-snapshot", tags=["lmv-snapshot"])
 
+# Read-through cache TTLs. Snapshot data only changes on a daily upload
+# (invalidated explicitly below); the TTL is just a safety net that also
+# bounds how long a *different* gunicorn worker can serve a stale copy.
+_RANGE_TTL = 600     # 10 min
+_SNAPSHOT_TTL = 600
+
 
 @router.post("/daily-upload", response_model=LmvSnapshotUploadResponse)
 async def daily_upload(
-    payload: LmvSnapshotUploadRequest, session: AsyncSession = Depends(get_tenant_db)
+    payload: LmvSnapshotUploadRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
 ) -> LmvSnapshotUploadResponse:
-    return await lmv_snapshot_service.upsert_lmv_snapshot(session, payload)
+    result = await lmv_snapshot_service.upsert_lmv_snapshot(session, payload)
+    cache.invalidate_tag(lmv_snapshot_tag(current_user.schema_name))
+    return result
 
 
 @router.get("/snapshot", response_model=SnapshotResponse)
 async def snapshot(
     date_param: date | None = Query(default=None, alias="date"),
+    current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
-) -> SnapshotResponse:
-    return await lmv_snapshot_service.get_snapshot(session, date_param)
+):
+    schema = current_user.schema_name
+    key = f"lmv-snapshot:{schema}:{date_param.isoformat() if date_param else 'latest'}"
+    payload = await get_or_set(
+        key, _SNAPSHOT_TTL, [lmv_snapshot_tag(schema)],
+        lambda: lmv_snapshot_service.get_snapshot_payload(session, date_param),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/latest", response_model=SnapshotResponse)
-async def latest(session: AsyncSession = Depends(get_tenant_db)) -> SnapshotResponse:
-    return await lmv_snapshot_service.get_snapshot(session, None)
+async def latest(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+):
+    schema = current_user.schema_name
+    payload = await get_or_set(
+        f"lmv-snapshot:{schema}:latest", _SNAPSHOT_TTL, [lmv_snapshot_tag(schema)],
+        lambda: lmv_snapshot_service.get_snapshot_payload(session, None),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/range", response_model=SnapshotRangeResponse)
 async def snapshot_range(
     days: int = Query(default=20, ge=1, le=90),
+    current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_tenant_db),
-) -> SnapshotRangeResponse:
-    return await lmv_snapshot_service.get_snapshot_range(session, days)
+):
+    schema = current_user.schema_name
+    payload = await get_or_set(
+        f"lmv-range:{schema}:{days}", _RANGE_TTL, [lmv_snapshot_tag(schema)],
+        lambda: lmv_snapshot_service.get_snapshot_range_payload(session, days),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.get("/availability", response_model=DateAvailabilityResponse)
@@ -55,6 +89,10 @@ async def availability(
 
 @router.delete("/{trade_date}", response_model=DeleteDayResponse)
 async def delete_day(
-    trade_date: date, session: AsyncSession = Depends(get_tenant_db)
+    trade_date: date,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
 ) -> DeleteDayResponse:
-    return await lmv_snapshot_service.delete_lmv_snapshot_day(session, trade_date)
+    result = await lmv_snapshot_service.delete_lmv_snapshot_day(session, trade_date)
+    cache.invalidate_tag(lmv_snapshot_tag(current_user.schema_name))
+    return result

@@ -1,8 +1,10 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache, get_or_set
 from app.core.deps import CurrentUser, get_current_user, require_admin_email
 from app.db.deps import get_central_db, get_tenant_db
 from app.schemas.inception import (
@@ -22,6 +24,14 @@ from app.schemas.inception import (
 from app.services import inception_admin_sync_service, inception_service, inception_vendor_sync_service
 
 router = APIRouter(prefix="/inception", tags=["inception"])
+
+# Central EodBar data changes only on a vendor-sync / admin-sync (both
+# invalidate the tag below). Read-through cached because /bars with no
+# symbol filter is a ~25 MB, ~1.5M-float pivot that otherwise blocks the
+# worker's event loop on every call.
+_INCEPTION_TAG = "inception-central"
+_BARS_TTL = 900
+_META_TTL = 900
 
 
 # ── Central reads (shared across tenants — pure data-serving, no
@@ -48,8 +58,14 @@ async def bars(
     date_to: date = Query(alias="to"),
     symbols: list[str] = Query(default_factory=list),
     central_session: AsyncSession = Depends(get_central_db),
-) -> BarsResponse:
-    return await inception_service.get_bars(central_session, date_from, date_to, symbols or None)
+):
+    sym_key = ",".join(sorted(symbols)) if symbols else "ALL"
+    key = f"inception-bars:{date_from.isoformat()}:{date_to.isoformat()}:{sym_key}"
+    payload = await get_or_set(
+        key, _BARS_TTL, [_INCEPTION_TAG],
+        lambda: inception_service.get_bars_payload(central_session, date_from, date_to, symbols or None),
+    )
+    return ORJSONResponse(payload)
 
 
 @router.post("/vendor-sync", response_model=VendorSyncResponse)
@@ -66,9 +82,11 @@ async def vendor_sync(
     current_user: CurrentUser = Depends(get_current_user),
     central_session: AsyncSession = Depends(get_central_db),
 ) -> VendorSyncResponse:
-    return await inception_vendor_sync_service.sync_nfofut_from_vendor(
+    result = await inception_vendor_sync_service.sync_nfofut_from_vendor(
         central_session, email=payload.email, password=payload.password, exchange=payload.exchange,
     )
+    cache.invalidate_tag(_INCEPTION_TAG)
+    return result
 
 
 # ── Admin Controls > Inception Sync (desktop client menu, gated client-side
@@ -86,6 +104,7 @@ async def admin_sync_lmv_metrics(
     central_session: AsyncSession = Depends(get_central_db),
 ) -> InceptionAdminSyncResponse:
     result = await inception_admin_sync_service.sync_lmv_metrics_to_eod_bar(tenant_session, central_session)
+    cache.invalidate_tag(_INCEPTION_TAG)
     return InceptionAdminSyncResponse(**result)
 
 

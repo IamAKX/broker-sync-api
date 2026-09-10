@@ -119,3 +119,49 @@ def test_get_snapshot_range_rejects_days_over_max():
 
     with pytest.raises(InvalidDateRangeError):
         asyncio.run(lmv_snapshot_service.get_snapshot_range(session=None, days=91))
+
+
+# ── get_snapshot_range_payload: serialization-ready dict + thread offload ─────
+
+def test_get_snapshot_range_payload_returns_plain_dict(monkeypatch):
+    from app.services import lmv_snapshot_service
+
+    d1, d2 = date(2026, 1, 5), date(2026, 1, 6)
+
+    async def fake_dates(session, limit):
+        return [d1, d2]
+
+    async def fake_rows(session, trade_dates):
+        return [
+            _row("INFY", "INFY", d1, "High", 1800.0),
+            _row("INFY", "INFY", d2, "High", 1810.0),
+        ]
+
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_recent_trade_dates", fake_dates)
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_snapshot_rows_for_dates", fake_rows)
+
+    out = asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=2))
+
+    assert isinstance(out, dict)
+    assert [d["trade_date"] for d in out["days"]] == ["2026-01-05", "2026-01-06"]
+    assert out["days"][0]["stocks"][0] == {"symbol": "INFY", "display_name": "INFY", "metrics": {"High": 1800.0}}
+
+
+def test_get_snapshot_range_payload_empty(monkeypatch):
+    from app.services import lmv_snapshot_service
+
+    async def fake_dates(session, limit):
+        return []
+
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_recent_trade_dates", fake_dates)
+    assert asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=5)) == {"days": []}
+
+
+def test_get_snapshot_range_payload_rejects_bad_days():
+    from app.exceptions import InvalidDateRangeError
+    from app.services import lmv_snapshot_service
+
+    with pytest.raises(InvalidDateRangeError):
+        asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=0))
+    with pytest.raises(InvalidDateRangeError):
+        asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=999))
