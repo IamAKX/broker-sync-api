@@ -1,0 +1,1 @@
+{"key":"scheduler_triggers","value":{"lmv_check":{"time":"20:35","email":true,"slack":true,"system":true},"historic_save":{"time":"20:45","email":true,"slack":true,"system":true},"availability_check":{"time":"08:55","email":true,"slack":true,"system":true},"opening_range_capture":{"time":"09:30","email":true,"slack":false,"system":true}}}
