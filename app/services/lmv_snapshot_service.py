@@ -14,6 +14,9 @@ from app.repositories.lmv_snapshot_repo import (
     fetch_snapshot_rows,
     fetch_snapshot_rows_for_dates,
     fetch_trade_dates_in_range,
+    fetch_wide_rows_for_dates,
+    upsert_wide_for_date,
+    wide_table_ready,
 )
 from app.repositories.metric_repo import bulk_get_or_create_metrics
 from app.repositories.stock_repo import bulk_get_or_create_stocks
@@ -82,6 +85,27 @@ async def upsert_lmv_snapshot(
             )
 
     values_upserted = await bulk_upsert_lmv_snapshot_values(session, value_rows)
+
+    # Keep the pre-pivoted read model (LmvDailySnapshotWide) in step — one
+    # row per (trade_date, stock) with all metrics as JSONB. Same
+    # transaction as the EAV write, so the two never diverge.
+    wide_rows = []
+    for row in payload.rows:
+        metrics: dict = {}
+        for metric_name, value in row.metrics.items():
+            is_number = metric_types[metric_name] == "number"
+            if is_number:
+                metrics[metric_name] = value if isinstance(value, (int, float)) else None
+            else:
+                metrics[metric_name] = None if isinstance(value, (int, float)) else value
+        wide_rows.append({
+            "stock_id": symbol_to_stock_id[row.symbol],
+            "symbol": row.symbol,
+            "display_name": row.display_name,
+            "metrics": metrics,
+        })
+    await upsert_wide_for_date(session, payload.trade_date, wide_rows)
+
     await session.commit()
 
     return LmvSnapshotUploadResponse(
@@ -170,6 +194,17 @@ def _build_range_payload(trade_dates: list[date], rows) -> dict:
     return {"days": [_pivot_day_to_dict(d, rows_by_date[d]) for d in trade_dates]}
 
 
+def _build_range_payload_from_wide(trade_dates: list[date], wide_rows) -> dict:
+    """Wide rows are already pivoted — one per (date, stock) with a JSONB
+    metrics dict — so this is just a group-by-date, no per-value work."""
+    by_date: dict[date, list] = {d: [] for d in trade_dates}
+    for r in wide_rows:
+        by_date[r["trade_date"]].append(
+            {"symbol": r["symbol"], "display_name": r["display_name"], "metrics": r["metrics"]}
+        )
+    return {"days": [{"trade_date": d.isoformat(), "stocks": by_date[d]} for d in trade_dates]}
+
+
 async def get_snapshot_range_payload(session: AsyncSession, days: int) -> dict:
     if days < 1:
         raise InvalidDateRangeError("days must be at least 1")
@@ -178,6 +213,13 @@ async def get_snapshot_range_payload(session: AsyncSession, days: int) -> dict:
     trade_dates = await fetch_recent_trade_dates(session, days)
     if not trade_dates:
         return {"days": []}
+
+    if await wide_table_ready(session):
+        wide_rows = await fetch_wide_rows_for_dates(session, trade_dates)
+        # small (~200 rows/day, already pivoted) — cheap enough on the loop,
+        # but keep it off for consistency with the EAV path.
+        return await asyncio.to_thread(_build_range_payload_from_wide, trade_dates, wide_rows)
+
     rows = await fetch_snapshot_rows_for_dates(session, trade_dates)
     return await asyncio.to_thread(_build_range_payload, trade_dates, rows)
 

@@ -134,6 +134,33 @@ class LmvDailySnapshot(TenantBase):
     )
 
 
+class LmvDailySnapshotWide(TenantBase):
+    """Pre-pivoted read model for LmvDailySnapshot: one row per
+    (trade_date, stock) with every metric as a JSONB object, plus the
+    symbol/display_name denormalized so a range read needs no join.
+
+    Written alongside the EAV rows on every /lmv-snapshot/daily-upload, and
+    fully rebuildable from LmvDailySnapshot (scripts/backfill_lmv_wide.py).
+    The EAV table stays the source of truth for point lookups / audit; this
+    exists only so /lmv-snapshot/range serves ~200 rows/day instead of
+    pivoting ~15.6k EAV rows/day in Python on every request (which, on
+    this app's small worker pool, was the cause of the range-endpoint
+    timeouts — see docs/PERFORMANCE_SCALING_PLAN.md D1)."""
+
+    __tablename__ = "LmvDailySnapshotWide"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    stock_id: Mapped[int] = mapped_column(Integer, ForeignKey("Stock.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_ldsw_date", "trade_date"),
+    )
+
+
 class SavedStrategy(TenantBase):
     """A user's Strategy Builder strategy, synced from the desktop client's
     local strategies.json. Private per user, not shared tenant-wide, even

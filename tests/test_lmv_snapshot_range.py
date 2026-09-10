@@ -137,8 +137,12 @@ def test_get_snapshot_range_payload_returns_plain_dict(monkeypatch):
             _row("INFY", "INFY", d2, "High", 1810.0),
         ]
 
+    async def _not_ready(session):
+        return False
+
     monkeypatch.setattr(lmv_snapshot_service, "fetch_recent_trade_dates", fake_dates)
     monkeypatch.setattr(lmv_snapshot_service, "fetch_snapshot_rows_for_dates", fake_rows)
+    monkeypatch.setattr(lmv_snapshot_service, "wide_table_ready", _not_ready)
 
     out = asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=2))
 
@@ -165,3 +169,41 @@ def test_get_snapshot_range_payload_rejects_bad_days():
         asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=0))
     with pytest.raises(InvalidDateRangeError):
         asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=999))
+
+
+def test_range_payload_reads_wide_table_when_ready(monkeypatch):
+    from app.services import lmv_snapshot_service
+
+    d1, d2 = date(2026, 1, 5), date(2026, 1, 6)
+
+    async def fake_dates(session, limit):
+        return [d1, d2]
+
+    async def ready(session):
+        return True
+
+    async def fake_wide(session, trade_dates):
+        assert trade_dates == [d1, d2]
+        return [
+            {"trade_date": d1, "symbol": "INFY", "display_name": "Infosys", "metrics": {"High": 1800.0}},
+            {"trade_date": d2, "symbol": "INFY", "display_name": "Infosys", "metrics": {"High": 1810.0}},
+        ]
+
+    def _boom(*a, **k):
+        raise AssertionError("EAV pivot path should not run when the wide table is ready")
+
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_recent_trade_dates", fake_dates)
+    monkeypatch.setattr(lmv_snapshot_service, "wide_table_ready", ready)
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_wide_rows_for_dates", fake_wide)
+    monkeypatch.setattr(lmv_snapshot_service, "fetch_snapshot_rows_for_dates", _boom)
+
+    out = asyncio.run(lmv_snapshot_service.get_snapshot_range_payload(session=None, days=2))
+
+    assert out == {
+        "days": [
+            {"trade_date": "2026-01-05", "stocks": [
+                {"symbol": "INFY", "display_name": "Infosys", "metrics": {"High": 1800.0}}]},
+            {"trade_date": "2026-01-06", "stocks": [
+                {"symbol": "INFY", "display_name": "Infosys", "metrics": {"High": 1810.0}}]},
+        ]
+    }

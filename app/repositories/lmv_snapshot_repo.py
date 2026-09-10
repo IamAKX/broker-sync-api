@@ -4,7 +4,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tenant import LmvDailySnapshot, Metric, Stock
+from app.models.tenant import LmvDailySnapshot, LmvDailySnapshotWide, Metric, Stock
 
 # Same batch sizing rationale as historical_value_repo._UPSERT_BATCH_SIZE.
 _UPSERT_BATCH_SIZE = 400
@@ -158,4 +158,74 @@ async def delete_values_for_date(session: AsyncSession, trade_date: date) -> int
     catalog rows (shared with HistoricalStockValue) are left untouched."""
     stmt = delete(LmvDailySnapshot).where(LmvDailySnapshot.trade_date == trade_date)
     result = await session.execute(stmt)
+    await session.execute(
+        delete(LmvDailySnapshotWide).where(LmvDailySnapshotWide.trade_date == trade_date)
+    )
     return result.rowcount or 0
+
+
+# ── LmvDailySnapshotWide (pre-pivoted read model) ────────────────────────
+
+async def wide_table_ready(session: AsyncSession) -> bool:
+    """True once the wide table has at least as many distinct trade_dates as
+    the EAV table — i.e. the backfill has run and is keeping up. The read
+    path falls back to the EAV pivot until then, so a partially-migrated
+    tenant is never served an incomplete range."""
+    eav = await session.scalar(select(func.count(func.distinct(LmvDailySnapshot.trade_date))))
+    if not eav:
+        return False
+    wide = await session.scalar(select(func.count(func.distinct(LmvDailySnapshotWide.trade_date))))
+    return (wide or 0) >= eav
+
+
+async def upsert_wide_for_date(
+    session: AsyncSession, trade_date: date, stock_rows: list[dict]
+) -> int:
+    """Replace the wide rows for one trade_date. *stock_rows* is
+    [{stock_id, symbol, display_name, metrics}], already pivoted."""
+    if not stock_rows:
+        return 0
+    total = 0
+    for start in range(0, len(stock_rows), _UPSERT_BATCH_SIZE):
+        batch = stock_rows[start : start + _UPSERT_BATCH_SIZE]
+        values = [
+            {
+                "trade_date": trade_date,
+                "stock_id": r["stock_id"],
+                "symbol": r["symbol"],
+                "display_name": r["display_name"],
+                "metrics": r["metrics"],
+            }
+            for r in batch
+        ]
+        stmt = pg_insert(LmvDailySnapshotWide).values(values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[LmvDailySnapshotWide.trade_date, LmvDailySnapshotWide.stock_id],
+            set_={
+                "symbol": stmt.excluded.symbol,
+                "display_name": stmt.excluded.display_name,
+                "metrics": stmt.excluded.metrics,
+                "updated_at": func.now(),
+            },
+        )
+        result = await session.execute(stmt)
+        total += result.rowcount or 0
+    return total
+
+
+async def fetch_wide_rows_for_dates(session: AsyncSession, trade_dates: list[date]):
+    """The pre-pivoted rows for *trade_dates* — one per (date, stock), no
+    join, no per-row ORM machinery. ~200 rows/day vs the EAV pivot's
+    ~15.6k."""
+    stmt = (
+        select(
+            LmvDailySnapshotWide.trade_date,
+            LmvDailySnapshotWide.symbol,
+            LmvDailySnapshotWide.display_name,
+            LmvDailySnapshotWide.metrics,
+        )
+        .where(LmvDailySnapshotWide.trade_date.in_(trade_dates))
+    )
+    connection = await session.connection()
+    result = await connection.execute(stmt)
+    return result.mappings().all()
