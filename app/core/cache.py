@@ -104,6 +104,10 @@ class TTLCache:
 
 cache = TTLCache()
 
+import logging as _logging  # noqa: E402
+
+_log = _logging.getLogger("app.cache")
+
 
 async def get_or_set(
     key: str,
@@ -121,9 +125,12 @@ async def get_or_set(
     """
     hit = cache.get(key)
     if hit is not None:
+        _log.info("cache HIT %s", key)
         return hit
+    _log.info("cache MISS %s", key)
     value = await producer()
     cache.set(key, value, ttl, tags)
+    _log.info("cache SET %s entries=%d", key, cache.stats()["entries"])
     return value
 
 
