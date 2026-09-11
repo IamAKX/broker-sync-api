@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_tenant_db
 from app.schemas.formula_variables import (
+    FormulaVariableImportRequest,
+    FormulaVariableImportResponse,
     FormulaVariableListResponse,
     FormulaVariableResponse,
     FormulaVariableUpsertRequest,
@@ -19,6 +21,18 @@ async def list_variables(
     session: AsyncSession = Depends(get_tenant_db),
 ) -> FormulaVariableListResponse:
     return await formula_variable_service.list_variables(session, current_user.user_id)
+
+
+@router.put("/import", response_model=FormulaVariableImportResponse)
+async def import_variables(
+    payload: FormulaVariableImportRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> FormulaVariableImportResponse:
+    """Bulk merge-by-name — backs the client's combined Export/Import All
+    Data feature. Declared before "/{variable_id}" so FastAPI doesn't try
+    to parse "import" as a variable id."""
+    return await formula_variable_service.import_variables(session, current_user.user_id, payload.variables)
 
 
 @router.put("/{variable_id}", response_model=FormulaVariableResponse)

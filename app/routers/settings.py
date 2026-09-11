@@ -5,13 +5,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cache import cache, get_or_set, setting_key
 from app.core.deps import CurrentUser, get_current_user
 from app.db.deps import get_tenant_db
-from app.schemas.settings import SettingResponse, SettingUpdateRequest
+from app.schemas.settings import SettingListResponse, SettingResponse, SettingUpdateRequest
 from app.services import settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 # Settings change rarely and are read on every client startup / poll.
 _SETTING_TTL = 300
+
+
+@router.get("", response_model=SettingListResponse)
+async def list_settings(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> SettingListResponse:
+    """Every settings row this user has, regardless of key. Used only by
+    the desktop client's File > Export All Data — a rare, deliberate
+    action, not a hot poll path like GET /settings/{key} — so this isn't
+    cached the way that one is; keeps the invalidation story simple (no
+    second cache entry to keep in sync with every put_setting)."""
+    return await settings_service.list_settings(session, current_user.user_id)
 
 
 @router.get("/{key}", response_model=SettingResponse)

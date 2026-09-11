@@ -10,9 +10,13 @@ from app.schemas.inception import (
     BarsResponse,
     InceptionAdminSyncResponse,
     InceptionAvailabilityResponse,
+    InceptionFormulaVariableImportRequest,
+    InceptionFormulaVariableImportResponse,
     InceptionFormulaVariableListResponse,
     InceptionFormulaVariableResponse,
     InceptionFormulaVariableUpsertRequest,
+    InceptionStrategyImportRequest,
+    InceptionStrategyImportResponse,
     InceptionStrategyListResponse,
     InceptionStrategyResponse,
     InceptionStrategyUpsertRequest,
@@ -118,6 +122,18 @@ async def list_strategies(
     return await inception_service.list_strategies(session, current_user.user_id)
 
 
+@router.put("/strategies/import", response_model=InceptionStrategyImportResponse)
+async def import_strategies(
+    payload: InceptionStrategyImportRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> InceptionStrategyImportResponse:
+    """Bulk merge-by-name — backs the client's combined Export/Import All
+    Data feature. Declared before "/{strategy_id}" so FastAPI doesn't try
+    to parse "import" as a strategy id."""
+    return await inception_service.import_strategies(session, current_user.user_id, payload.strategies)
+
+
 @router.put("/strategies/{strategy_id}", response_model=InceptionStrategyResponse)
 async def upsert_strategy(
     strategy_id: str,
@@ -148,6 +164,18 @@ async def list_variables(
     session: AsyncSession = Depends(get_tenant_db),
 ) -> InceptionFormulaVariableListResponse:
     return await inception_service.list_variables(session, current_user.user_id)
+
+
+@router.put("/formula-variables/import", response_model=InceptionFormulaVariableImportResponse)
+async def import_variables(
+    payload: InceptionFormulaVariableImportRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_tenant_db),
+) -> InceptionFormulaVariableImportResponse:
+    """Bulk merge-by-name — backs the client's combined Export/Import All
+    Data feature. Declared before "/{variable_id}" so FastAPI doesn't try
+    to parse "import" as a variable id."""
+    return await inception_service.import_variables(session, current_user.user_id, payload.variables)
 
 
 @router.put("/formula-variables/{variable_id}", response_model=InceptionFormulaVariableResponse)

@@ -118,6 +118,24 @@ class InceptionStrategyListResponse(BaseModel):
     strategies: list[InceptionStrategyResponse]
 
 
+class InceptionStrategyImportItem(BaseModel):
+    id: str
+    name: str = Field(min_length=1, max_length=200)
+    active: bool = True
+    category: str = Field(default="Daily", min_length=1, max_length=100)
+    columns: list = Field(default_factory=list)
+    row_filter: list = Field(default_factory=list)
+
+
+class InceptionStrategyImportRequest(BaseModel):
+    strategies: list[InceptionStrategyImportItem]
+
+
+class InceptionStrategyImportResponse(BaseModel):
+    overwritten: int
+    added: int
+
+
 # ── Formula variable CRUD (mirrors app/schemas/formula_variables.py) ─────────
 
 class InceptionFormulaVariableUpsertRequest(BaseModel):
@@ -133,6 +151,21 @@ class InceptionFormulaVariableResponse(BaseModel):
 
 class InceptionFormulaVariableListResponse(BaseModel):
     variables: list[InceptionFormulaVariableResponse]
+
+
+class InceptionFormulaVariableImportItem(BaseModel):
+    id: str
+    name: str = Field(min_length=1, max_length=200)
+    formula: list = Field(default_factory=list)
+
+
+class InceptionFormulaVariableImportRequest(BaseModel):
+    variables: list[InceptionFormulaVariableImportItem]
+
+
+class InceptionFormulaVariableImportResponse(BaseModel):
+    overwritten: int
+    added: int
 
 
 # ── Vendor sync (app/services/inception_vendor_sync_service.py — the

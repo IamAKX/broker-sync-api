@@ -15,7 +15,11 @@ def test_new_routes_registered():
     assert "/strategies/import" in paths
     assert "/formula-variables" in paths
     assert "/formula-variables/{variable_id}" in paths
+    assert "/formula-variables/import" in paths
     assert "/settings/{key}" in paths
+    assert "/settings" in paths
+    assert "/inception/strategies/import" in paths
+    assert "/inception/formula-variables/import" in paths
     assert "/auth/me/theme" in paths
 
 
@@ -102,6 +106,33 @@ def test_fetch_setting_filters_by_user_id_and_key():
     assert "key" in captured["sql"]
 
 
+def test_fetch_all_settings_for_user_filters_by_user_id_only():
+    """Backs GET /settings (list) — Export All Data's source for "every
+    setting this user has", since the client's own local cache only ever
+    holds whatever keys a screen has loaded this session."""
+    from app.repositories.settings_repo import fetch_all_for_user
+
+    captured = {}
+
+    class _FakeScalars:
+        def all(self):
+            return []
+
+    class _FakeResult:
+        def scalars(self):
+            return _FakeScalars()
+
+    class _FakeSession:
+        async def execute(self, stmt):
+            captured["sql"] = str(stmt)
+            return _FakeResult()
+
+    asyncio.run(fetch_all_for_user(_FakeSession(), uuid.uuid4()))
+    where_clause = captured["sql"].split("WHERE", 1)[1].split("ORDER BY")[0]
+    assert "user_id" in where_clause
+    assert "key" not in where_clause
+
+
 # ── strategy_service.import_strategies: merge-by-name ───────────────────────
 
 class _FakeSession:
@@ -166,6 +197,57 @@ def test_import_strategies_adds_new_name(monkeypatch):
     item = StrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
     session = _FakeSession()
     result = asyncio.run(strategy_service.import_strategies(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (0, 1)
+    assert len(session.added) == 1
+    assert session.added[0].name == "Brand New"
+    assert session.added[0].user_id == user_id
+
+
+# ── formula_variable_service.import_variables: merge-by-name (same shape ────
+# as import_strategies above — added for the combined Export/Import All
+# Data feature; LMV formula variables previously had no bulk import) ───────
+
+def test_import_variables_overwrites_by_name_keeps_existing_server_id(monkeypatch):
+    from app.models.tenant import FormulaVariable
+    from app.schemas.formula_variables import FormulaVariableImportItem
+    from app.services import formula_variable_service
+
+    user_id = uuid.uuid4()
+    existing_id = uuid.uuid4()
+    existing = FormulaVariable(id=existing_id, user_id=user_id, name="Threshold", formula=[])
+
+    async def fake_fetch_all_for_user(session, uid):
+        assert uid == user_id
+        return [existing]
+
+    monkeypatch.setattr(formula_variable_service, "fetch_all_for_user", fake_fetch_all_for_user)
+
+    item = FormulaVariableImportItem(id=str(uuid.uuid4()), name="Threshold", formula=[{"type": "num", "value": "1"}])
+    session = _FakeSession()
+    result = asyncio.run(formula_variable_service.import_variables(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (1, 0)
+    assert existing.id == existing_id
+    assert existing.formula == [{"type": "num", "value": "1"}]
+    assert session.added == []
+    assert session.committed is True
+
+
+def test_import_variables_adds_new_name(monkeypatch):
+    from app.schemas.formula_variables import FormulaVariableImportItem
+    from app.services import formula_variable_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(formula_variable_service, "fetch_all_for_user", fake_fetch_all_for_user)
+
+    item = FormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeSession()
+    result = asyncio.run(formula_variable_service.import_variables(session, str(user_id), [item]))
 
     assert (result.overwritten, result.added) == (0, 1)
     assert len(session.added) == 1

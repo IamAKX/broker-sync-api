@@ -2,8 +2,13 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.settings_repo import fetch_setting, upsert_setting
-from app.schemas.settings import SettingResponse
+from app.repositories.settings_repo import fetch_all_for_user, fetch_setting, upsert_setting
+from app.schemas.settings import SettingListResponse, SettingResponse
+
+
+async def list_settings(session: AsyncSession, user_id: str) -> SettingListResponse:
+    rows = await fetch_all_for_user(session, uuid.UUID(user_id))
+    return SettingListResponse(settings=[SettingResponse(key=r.key, value=r.value) for r in rows])
 
 
 async def get_setting(session: AsyncSession, user_id: str, key: str) -> SettingResponse:

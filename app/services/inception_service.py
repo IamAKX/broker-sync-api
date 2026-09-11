@@ -9,6 +9,7 @@ from app.exceptions import (
     InvalidDateRangeError,
     StrategyNotFoundError,
 )
+from app.models.tenant import InceptionFormulaVariable, InceptionStrategy
 from app.repositories import (
     inception_formula_variable_repo as ifv_repo,
     inception_strategy_repo as istrat_repo,
@@ -19,8 +20,12 @@ from app.schemas.inception import (
     BarsResponse,
     InceptionAvailabilityResponse,
     InceptionDateAvailability,
+    InceptionFormulaVariableImportItem,
+    InceptionFormulaVariableImportResponse,
     InceptionFormulaVariableListResponse,
     InceptionFormulaVariableResponse,
+    InceptionStrategyImportItem,
+    InceptionStrategyImportResponse,
     InceptionStrategyListResponse,
     InceptionStrategyResponse,
     InstrumentListResponse,
@@ -197,6 +202,41 @@ async def delete_strategy(session: AsyncSession, user_id: str, strategy_id: str)
     await session.commit()
 
 
+async def import_strategies(
+    session: AsyncSession, user_id: str, items: list[InceptionStrategyImportItem]
+) -> InceptionStrategyImportResponse:
+    """Bulk merge-by-name — mirrors strategy_service.import_strategies'
+    exact semantics (an existing row's own id is kept on overwrite, only a
+    genuinely new name gets the imported id). Inception never had a bulk
+    import before this (see services/inception_strategy_store.py's own
+    docstring in the client repo); added for the combined Export/Import
+    All Data feature."""
+    uid = uuid.UUID(user_id)
+    existing = await istrat_repo.fetch_all_for_user(session, uid)
+    by_name = {}
+    for s in existing:
+        by_name.setdefault(s.name, s)
+
+    overwritten = 0
+    added = 0
+    for item in items:
+        target = by_name.get(item.name)
+        if target is not None:
+            istrat_repo.apply_fields(target, item.name, item.active, item.category, item.columns, item.row_filter)
+            overwritten += 1
+        else:
+            created = InceptionStrategy(
+                id=uuid.UUID(item.id), user_id=uid, name=item.name, active=item.active,
+                category=item.category, columns=item.columns, row_filter=item.row_filter,
+            )
+            session.add(created)
+            by_name[item.name] = created
+            added += 1
+
+    await session.commit()
+    return InceptionStrategyImportResponse(overwritten=overwritten, added=added)
+
+
 # ── Formula variable CRUD (mirrors formula_variable_service.py) ─────────────
 
 def _variable_to_response(v) -> InceptionFormulaVariableResponse:
@@ -221,3 +261,30 @@ async def delete_variable(session: AsyncSession, user_id: str, variable_id: str)
     if not deleted:
         raise FormulaVariableNotFoundError("Inception formula variable not found")
     await session.commit()
+
+
+async def import_variables(
+    session: AsyncSession, user_id: str, items: list[InceptionFormulaVariableImportItem]
+) -> InceptionFormulaVariableImportResponse:
+    """Bulk merge-by-name — mirrors formula_variable_service.import_variables."""
+    uid = uuid.UUID(user_id)
+    existing = await ifv_repo.fetch_all_for_user(session, uid)
+    by_name = {}
+    for v in existing:
+        by_name.setdefault(v.name, v)
+
+    overwritten = 0
+    added = 0
+    for item in items:
+        target = by_name.get(item.name)
+        if target is not None:
+            target.formula = item.formula
+            overwritten += 1
+        else:
+            created = InceptionFormulaVariable(id=uuid.UUID(item.id), user_id=uid, name=item.name, formula=item.formula)
+            session.add(created)
+            by_name[item.name] = created
+            added += 1
+
+    await session.commit()
+    return InceptionFormulaVariableImportResponse(overwritten=overwritten, added=added)

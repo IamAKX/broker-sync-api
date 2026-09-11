@@ -125,6 +125,127 @@ def test_inception_strategy_fetch_all_filters_by_user_id():
     assert "user_id" in captured["sql"]
 
 
+# ── inception_service.import_strategies / import_variables: merge-by-name ──
+# (same shape as strategy_service.import_strategies — Inception previously
+# had no bulk import at all; added for the combined Export/Import All Data
+# feature.)
+
+class _FakeImportSession:
+    def __init__(self):
+        self.added = []
+        self.committed = False
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.committed = True
+
+
+def test_inception_import_strategies_overwrites_by_name_keeps_existing_id(monkeypatch):
+    from app.models.tenant import InceptionStrategy
+    from app.schemas.inception import InceptionStrategyImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+    existing_id = uuid.uuid4()
+    existing = InceptionStrategy(
+        id=existing_id, user_id=user_id, name="52WH", active=False,
+        category="Daily", columns=[], row_filter=[],
+    )
+
+    async def fake_fetch_all_for_user(session, uid):
+        assert uid == user_id
+        return [existing]
+
+    monkeypatch.setattr(
+        "app.repositories.inception_strategy_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionStrategyImportItem(id=str(uuid.uuid4()), name="52WH", active=True, columns=[{"name": "c1"}])
+    session = _FakeImportSession()
+    result = asyncio.run(inception_service.import_strategies(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (1, 0)
+    assert existing.id == existing_id
+    assert existing.active is True
+    assert existing.columns == [{"name": "c1"}]
+    assert session.added == []
+    assert session.committed is True
+
+
+def test_inception_import_strategies_adds_new_name(monkeypatch):
+    from app.schemas.inception import InceptionStrategyImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.inception_strategy_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionStrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeImportSession()
+    result = asyncio.run(inception_service.import_strategies(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (0, 1)
+    assert len(session.added) == 1
+    assert session.added[0].name == "Brand New"
+    assert session.added[0].user_id == user_id
+
+
+def test_inception_import_variables_overwrites_by_name_keeps_existing_id(monkeypatch):
+    from app.models.tenant import InceptionFormulaVariable
+    from app.schemas.inception import InceptionFormulaVariableImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+    existing_id = uuid.uuid4()
+    existing = InceptionFormulaVariable(id=existing_id, user_id=user_id, name="Threshold", formula=[])
+
+    async def fake_fetch_all_for_user(session, uid):
+        return [existing]
+
+    monkeypatch.setattr(
+        "app.repositories.inception_formula_variable_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionFormulaVariableImportItem(id=str(uuid.uuid4()), name="Threshold", formula=[{"type": "num", "value": "2"}])
+    session = _FakeImportSession()
+    result = asyncio.run(inception_service.import_variables(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (1, 0)
+    assert existing.id == existing_id
+    assert existing.formula == [{"type": "num", "value": "2"}]
+    assert session.committed is True
+
+
+def test_inception_import_variables_adds_new_name(monkeypatch):
+    from app.schemas.inception import InceptionFormulaVariableImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.inception_formula_variable_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionFormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeImportSession()
+    result = asyncio.run(inception_service.import_variables(session, str(user_id), [item]))
+
+    assert (result.overwritten, result.added) == (0, 1)
+    assert len(session.added) == 1
+    assert session.added[0].name == "Brand New"
+    assert session.added[0].user_id == user_id
+
+
 # ── services.inception_service.get_bars: range validation ───────────────────
 
 def test_get_bars_rejects_inverted_range():

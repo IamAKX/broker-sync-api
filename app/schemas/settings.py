@@ -10,3 +10,7 @@ class SettingResponse(BaseModel):
 
 class SettingUpdateRequest(BaseModel):
     value: Any
+
+
+class SettingListResponse(BaseModel):
+    settings: list[SettingResponse]
