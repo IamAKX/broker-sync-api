@@ -16,7 +16,12 @@ _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 # fixes which tenant schema get_tenant_db resolves to for that request —
 # see require_admin_email's own docstring). Matched case-insensitively
 # since email identity shouldn't hinge on casing.
-_ADMIN_EMAIL = "sundarhari10@gmail.com"
+#
+# Public (not underscore-prefixed) because app.services.tenant_seed_service
+# also needs it — that's the same "whose tenant is the reference copy"
+# question this module already answers, not a new admin concept.
+ADMIN_EMAIL = "sundarhari10@gmail.com"
+_ADMIN_EMAIL = ADMIN_EMAIL  # back-compat alias, in case anything still imports the old name
 
 
 @dataclass(frozen=True)

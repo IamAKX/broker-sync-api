@@ -80,7 +80,35 @@ async def signup(
     # exit, so an explicit commit is required here, matching login()/refresh() below.
     await session.commit()
 
+    await _seed_new_tenant_best_effort(tenant.schema_name, user.id)
+
     return tokens
+
+
+async def _seed_new_tenant_best_effort(schema_name: str, user_id: uuid.UUID) -> None:
+    """Copies the admin tenant's starter data (strategies, formula
+    variables, Historic Upload archive, ...) into the just-provisioned
+    tenant — see app.services.tenant_seed_service's module docstring for
+    the full rationale/safety model (issue: every signup used to leave a
+    completely empty tenant, so a non-admin login's LMV/HMV read blank).
+
+    A SEPARATE session/transaction from the signup above, deliberately: the
+    signup itself must succeed regardless of whether seeding does — a
+    failure here is logged and swallowed, never raised back to the caller,
+    so it can't turn a working signup into a failed one.
+    """
+    from app.core.logging import get_logger
+    from app.db.central_session import CentralSessionLocal
+    from app.services.tenant_seed_service import seed_tenant_from_admin
+
+    logger = get_logger(__name__)
+    try:
+        async with CentralSessionLocal() as seed_session:
+            report = await seed_tenant_from_admin(seed_session, schema_name, user_id)
+            await seed_session.commit()
+        logger.info("tenant_seed.done", schema_name=schema_name, report=report)
+    except Exception:
+        logger.exception("tenant_seed.failed", schema_name=schema_name)
 
 
 async def login(session: AsyncSession, email: str, password: str) -> TokenResponse:

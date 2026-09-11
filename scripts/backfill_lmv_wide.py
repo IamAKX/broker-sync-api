@@ -71,6 +71,9 @@ async def main() -> None:
         try:
             # make sure LmvDailySnapshotWide exists in this schema
             await ensure_tenant_schema_tables(session, schema)
+            # raw text() SQL is NOT subject to schema_translate_map — pin the
+            # search_path so the unqualified table names resolve to this tenant
+            await session.execute(text(f'SET search_path TO "{schema}"'))
             await session.execute(_BACKFILL_SQL)
             await session.commit()
             row = (await session.execute(_COUNTS_SQL)).one()
