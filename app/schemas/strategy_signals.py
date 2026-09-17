@@ -18,7 +18,14 @@ class StrategySignalUpsertRequest(BaseModel):
     # taken, so the client resolves straight to this instead of tracking a
     # normal open signal. See that repo's services/strategy_alerts/
     # engine.py::_invalid_metrics.
-    status: Literal["open", "stopped_out", "all_targets_achieved", "trade_cancelled"]
+    # "intraday_closed" — issue #43 on the desktop client repo: a strategy
+    # configured alert_mode="intraday" has its still-open signal force-
+    # resolved at the day's alert-window close (Current price as the exit)
+    # instead of carrying into the next day. See that repo's
+    # services/strategy_alerts/engine.py::close_intraday_signals.
+    status: Literal[
+        "open", "stopped_out", "all_targets_achieved", "trade_cancelled", "intraday_closed",
+    ]
     entry_time: datetime | None = None
     entry_price: float | None = None
     resolved_at: datetime | None = None

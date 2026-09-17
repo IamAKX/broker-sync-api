@@ -135,6 +135,19 @@ def test_upsert_request_accepts_trade_cancelled_status():
     assert req.status == "trade_cancelled"
 
 
+def test_upsert_request_accepts_intraday_closed_status():
+    """Issue #43 (desktop client repo): an "intraday" alert_mode strategy's
+    still-open signal is force-resolved at the day's alert-window close
+    instead of carrying into the next day."""
+    from app.schemas.strategy_signals import StrategySignalUpsertRequest
+
+    req = StrategySignalUpsertRequest(
+        strategy_id=str(uuid.uuid4()), strategy_name="Stage 3 WeekTurnover", symbol="RELIANCE",
+        direction="BUY", status="intraday_closed",
+    )
+    assert req.status == "intraday_closed"
+
+
 def test_upsert_request_accepts_open_signal_minimal_fields():
     from app.schemas.strategy_signals import StrategySignalUpsertRequest
 

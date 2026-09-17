@@ -282,9 +282,13 @@ class StrategySignal(TenantBase):
     symbol: Mapped[str] = mapped_column(String(50), nullable=False)
     sector: Mapped[str | None] = mapped_column(String(100), nullable=True)
     direction: Mapped[str] = mapped_column(String(10), nullable=False)   # 'BUY' | 'SELL'
-    # 'open' | 'stopped_out' | 'all_targets_achieved' — deliberately not
+    # 'open' | 'stopped_out' | 'all_targets_achieved' | 'trade_cancelled' |
+    # 'intraday_closed' (desktop client repo issue #43: an "intraday"
+    # alert_mode strategy's signal, force-resolved at the day's alert-window
+    # close instead of carrying into the next day) — deliberately not
     # 'pending' (see class docstring); "open" covers both a just-fired entry
-    # and every tick's running update until it resolves.
+    # and every tick's running update until it resolves. See app/schemas/
+    # strategy_signals.py's Literal for the authoritative allowed set.
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     entry_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     entry_price: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
