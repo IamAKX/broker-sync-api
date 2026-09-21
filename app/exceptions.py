@@ -128,6 +128,18 @@ class InvalidPeriodError(AppError):
     code = "invalid_period"
 
 
+class ImportIdConflictError(AppError):
+    """A bulk-import "added" row (strategy_service.import_strategies /
+    inception_service.import_strategies) tried to reuse an id that's
+    already a live primary key in this account's own table — see those
+    functions' own docstrings for why this can happen (issue #49) and why
+    minting a fresh id up front should make this effectively unreachable
+    in normal operation; this is the defensive fallback for whatever edge
+    case still gets past that."""
+    status_code = status.HTTP_409_CONFLICT
+    code = "import_id_conflict"
+
+
 class AdminOnlyError(AppError):
     """The caller is authenticated but not the specific admin account an
     endpoint is restricted to (see app.core.deps.require_admin_email) —

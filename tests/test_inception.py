@@ -134,12 +134,25 @@ class _FakeImportSession:
     def __init__(self):
         self.added = []
         self.committed = False
+        self.rolled_back = False
 
     def add(self, obj):
         self.added.append(obj)
 
     async def commit(self):
         self.committed = True
+
+    async def rollback(self):
+        self.rolled_back = True
+
+
+class _FakeImportSessionCommitRaisesIntegrityError(_FakeImportSession):
+    """See tests/test_strategies_formula_settings.py's own copy of this —
+    issue #49."""
+
+    async def commit(self):
+        from sqlalchemy.exc import IntegrityError
+        raise IntegrityError("INSERT ...", {}, Exception("duplicate key"))
 
 
 def test_inception_import_strategies_overwrites_by_name_keeps_existing_id(monkeypatch):
@@ -187,7 +200,8 @@ def test_inception_import_strategies_adds_new_name(monkeypatch):
         "app.repositories.inception_strategy_repo.fetch_all_for_user", fake_fetch_all_for_user
     )
 
-    item = InceptionStrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
+    item_id = str(uuid.uuid4())
+    item = InceptionStrategyImportItem(id=item_id, name="Brand New")
     session = _FakeImportSession()
     result = asyncio.run(inception_service.import_strategies(session, str(user_id), [item]))
 
@@ -195,6 +209,30 @@ def test_inception_import_strategies_adds_new_name(monkeypatch):
     assert len(session.added) == 1
     assert session.added[0].name == "Brand New"
     assert session.added[0].user_id == user_id
+    assert str(session.added[0].id) != item_id   # issue #49
+
+
+def test_inception_import_strategies_new_row_id_conflict_raises_friendly_error(monkeypatch):
+    from app.exceptions import ImportIdConflictError
+    from app.schemas.inception import InceptionStrategyImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.inception_strategy_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionStrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeImportSessionCommitRaisesIntegrityError()
+
+    with pytest.raises(ImportIdConflictError):
+        asyncio.run(inception_service.import_strategies(session, str(user_id), [item]))
+
+    assert session.rolled_back is True
 
 
 def test_inception_import_variables_overwrites_by_name_keeps_existing_id(monkeypatch):
@@ -236,13 +274,38 @@ def test_inception_import_variables_adds_new_name(monkeypatch):
         "app.repositories.inception_formula_variable_repo.fetch_all_for_user", fake_fetch_all_for_user
     )
 
-    item = InceptionFormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    item_id = str(uuid.uuid4())
+    item = InceptionFormulaVariableImportItem(id=item_id, name="Brand New")
     session = _FakeImportSession()
     result = asyncio.run(inception_service.import_variables(session, str(user_id), [item]))
 
     assert (result.overwritten, result.added) == (0, 1)
     assert len(session.added) == 1
     assert session.added[0].name == "Brand New"
+    assert str(session.added[0].id) != item_id   # issue #49
+
+
+def test_inception_import_variables_new_row_id_conflict_raises_friendly_error(monkeypatch):
+    from app.exceptions import ImportIdConflictError
+    from app.schemas.inception import InceptionFormulaVariableImportItem
+    from app.services import inception_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.inception_formula_variable_repo.fetch_all_for_user", fake_fetch_all_for_user
+    )
+
+    item = InceptionFormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeImportSessionCommitRaisesIntegrityError()
+
+    with pytest.raises(ImportIdConflictError):
+        asyncio.run(inception_service.import_variables(session, str(user_id), [item]))
+
+    assert session.rolled_back is True
     assert session.added[0].user_id == user_id
 
 

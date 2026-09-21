@@ -139,12 +139,28 @@ class _FakeSession:
     def __init__(self):
         self.added = []
         self.committed = False
+        self.rolled_back = False
 
     def add(self, obj):
         self.added.append(obj)
 
     async def commit(self):
         self.committed = True
+
+    async def rollback(self):
+        self.rolled_back = True
+
+
+class _FakeSessionCommitRaisesIntegrityError(_FakeSession):
+    """Simulates the real DB rejecting a bulk-import insert — see issue
+    #49: a newly-added row's id colliding with an existing row's primary
+    key in this account's own table. commit() only raises once so a
+    caller's own retry (session.commit() called again after rollback())
+    would still work, matching how a real DB session behaves."""
+
+    async def commit(self):
+        from sqlalchemy.exc import IntegrityError
+        raise IntegrityError("INSERT ...", {}, Exception("duplicate key"))
 
 
 def test_import_strategies_overwrites_by_name_keeps_existing_server_id(monkeypatch):
@@ -194,7 +210,8 @@ def test_import_strategies_adds_new_name(monkeypatch):
 
     monkeypatch.setattr(strategy_service, "fetch_all_for_user", fake_fetch_all_for_user)
 
-    item = StrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
+    item_id = str(uuid.uuid4())
+    item = StrategyImportItem(id=item_id, name="Brand New")
     session = _FakeSession()
     result = asyncio.run(strategy_service.import_strategies(session, str(user_id), [item]))
 
@@ -202,6 +219,39 @@ def test_import_strategies_adds_new_name(monkeypatch):
     assert len(session.added) == 1
     assert session.added[0].name == "Brand New"
     assert session.added[0].user_id == user_id
+    # issue #49: a new row must get a FRESH id, never the imported item's
+    # own id (the exporting account's real, already-claimed primary key —
+    # reusing it verbatim used to raise an unhandled IntegrityError
+    # whenever it collided with a live row in THIS account's own table).
+    assert str(session.added[0].id) != item_id
+
+
+def test_import_strategies_new_row_id_conflict_raises_friendly_error(monkeypatch):
+    """issue #49: reusing item.id could collide with an existing row's
+    primary key in this account (two users on one tenant schema, or a
+    stale re-import after a rename) and raise an unhandled IntegrityError
+    -> generic 500. Even with the fresh-id fix removing the normal
+    trigger for this, the defensive IntegrityError handling itself must
+    still convert whatever DB-level conflict occurs into a friendly,
+    typed error instead of propagating raw."""
+    from app.exceptions import ImportIdConflictError
+    from app.schemas.strategies import StrategyImportItem
+    from app.services import strategy_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(strategy_service, "fetch_all_for_user", fake_fetch_all_for_user)
+
+    item = StrategyImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeSessionCommitRaisesIntegrityError()
+
+    with pytest.raises(ImportIdConflictError):
+        asyncio.run(strategy_service.import_strategies(session, str(user_id), [item]))
+
+    assert session.rolled_back is True
 
 
 # ── formula_variable_service.import_variables: merge-by-name (same shape ────
@@ -245,7 +295,8 @@ def test_import_variables_adds_new_name(monkeypatch):
 
     monkeypatch.setattr(formula_variable_service, "fetch_all_for_user", fake_fetch_all_for_user)
 
-    item = FormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    item_id = str(uuid.uuid4())
+    item = FormulaVariableImportItem(id=item_id, name="Brand New")
     session = _FakeSession()
     result = asyncio.run(formula_variable_service.import_variables(session, str(user_id), [item]))
 
@@ -253,3 +304,25 @@ def test_import_variables_adds_new_name(monkeypatch):
     assert len(session.added) == 1
     assert session.added[0].name == "Brand New"
     assert session.added[0].user_id == user_id
+    assert str(session.added[0].id) != item_id   # issue #49 — see the strategies test above
+
+
+def test_import_variables_new_row_id_conflict_raises_friendly_error(monkeypatch):
+    from app.exceptions import ImportIdConflictError
+    from app.schemas.formula_variables import FormulaVariableImportItem
+    from app.services import formula_variable_service
+
+    user_id = uuid.uuid4()
+
+    async def fake_fetch_all_for_user(session, uid):
+        return []
+
+    monkeypatch.setattr(formula_variable_service, "fetch_all_for_user", fake_fetch_all_for_user)
+
+    item = FormulaVariableImportItem(id=str(uuid.uuid4()), name="Brand New")
+    session = _FakeSessionCommitRaisesIntegrityError()
+
+    with pytest.raises(ImportIdConflictError):
+        asyncio.run(formula_variable_service.import_variables(session, str(user_id), [item]))
+
+    assert session.rolled_back is True

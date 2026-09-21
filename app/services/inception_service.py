@@ -2,10 +2,12 @@ import asyncio
 import uuid
 from datetime import date, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import (
     FormulaVariableNotFoundError,
+    ImportIdConflictError,
     InvalidDateRangeError,
     StrategyNotFoundError,
 )
@@ -206,11 +208,12 @@ async def import_strategies(
     session: AsyncSession, user_id: str, items: list[InceptionStrategyImportItem]
 ) -> InceptionStrategyImportResponse:
     """Bulk merge-by-name — mirrors strategy_service.import_strategies'
-    exact semantics (an existing row's own id is kept on overwrite, only a
-    genuinely new name gets the imported id). Inception never had a bulk
-    import before this (see services/inception_strategy_store.py's own
-    docstring in the client repo); added for the combined Export/Import
-    All Data feature."""
+    exact semantics (an existing row's own id is kept on overwrite, a
+    genuinely new name gets a FRESH id — never *item.id*, see that
+    function's own docstring for the full issue #49 write-up; identical
+    bug/fix here). Inception never had a bulk import before this (see
+    services/inception_strategy_store.py's own docstring in the client
+    repo); added for the combined Export/Import All Data feature."""
     uid = uuid.UUID(user_id)
     existing = await istrat_repo.fetch_all_for_user(session, uid)
     by_name = {}
@@ -226,14 +229,22 @@ async def import_strategies(
             overwritten += 1
         else:
             created = InceptionStrategy(
-                id=uuid.UUID(item.id), user_id=uid, name=item.name, active=item.active,
+                id=uuid.uuid4(), user_id=uid, name=item.name, active=item.active,
                 category=item.category, columns=item.columns, row_filter=item.row_filter,
             )
             session.add(created)
             by_name[item.name] = created
             added += 1
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise ImportIdConflictError(
+            "Couldn't finish the import — one of the strategies conflicted "
+            "with something already in your account. Try importing again; "
+            "if this keeps happening, contact support."
+        ) from exc
     return InceptionStrategyImportResponse(overwritten=overwritten, added=added)
 
 
@@ -266,7 +277,10 @@ async def delete_variable(session: AsyncSession, user_id: str, variable_id: str)
 async def import_variables(
     session: AsyncSession, user_id: str, items: list[InceptionFormulaVariableImportItem]
 ) -> InceptionFormulaVariableImportResponse:
-    """Bulk merge-by-name — mirrors formula_variable_service.import_variables."""
+    """Bulk merge-by-name — mirrors formula_variable_service.import_variables
+    (a genuinely new name gets a FRESH id, never *item.id* — see
+    strategy_service.import_strategies' docstring for the full issue #49
+    write-up, identical bug/fix here)."""
     uid = uuid.UUID(user_id)
     existing = await ifv_repo.fetch_all_for_user(session, uid)
     by_name = {}
@@ -281,10 +295,18 @@ async def import_variables(
             target.formula = item.formula
             overwritten += 1
         else:
-            created = InceptionFormulaVariable(id=uuid.UUID(item.id), user_id=uid, name=item.name, formula=item.formula)
+            created = InceptionFormulaVariable(id=uuid.uuid4(), user_id=uid, name=item.name, formula=item.formula)
             session.add(created)
             by_name[item.name] = created
             added += 1
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise ImportIdConflictError(
+            "Couldn't finish the import — one of the variables conflicted "
+            "with something already in your account. Try importing again; "
+            "if this keeps happening, contact support."
+        ) from exc
     return InceptionFormulaVariableImportResponse(overwritten=overwritten, added=added)
