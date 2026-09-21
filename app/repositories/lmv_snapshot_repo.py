@@ -181,8 +181,31 @@ async def wide_table_ready(session: AsyncSession) -> bool:
 async def upsert_wide_for_date(
     session: AsyncSession, trade_date: date, stock_rows: list[dict]
 ) -> int:
-    """Replace the wide rows for one trade_date. *stock_rows* is
-    [{stock_id, symbol, display_name, metrics}], already pivoted."""
+    """Merge *stock_rows* into the wide rows for one trade_date.
+    *stock_rows* is [{stock_id, symbol, display_name, metrics}], already
+    pivoted.
+
+    *metrics* is JSONB-MERGED into an existing row (``metrics || EXCLUDED.
+    metrics`` — Postgres JSONB concatenation: every key in the new payload
+    is added/overwritten, every key already stored but NOT present in
+    this payload is left untouched), not replaced wholesale — issue #50.
+    A second same-day upload whose metrics dict happens to be narrower
+    than an earlier one (e.g. a live-computed column like CWTO that
+    couldn't be resolved this particular tick — see services.
+    live_formula's own "omitted, never set to None" convention in the
+    client repo — so it's simply absent from *this* payload's metrics,
+    not present-with-a-null-value) used to silently ERASE that column
+    from the wide table for the whole date, even though the EAV table
+    (LmvDailySnapshot, this table's own source of truth) never loses it:
+    bulk_upsert_lmv_snapshot_values above upserts per (trade_date,
+    stock_id, metric_id) — a metric absent from a later batch simply
+    isn't touched, so EAV already behaves like a merge. This class'
+    OWN docstring ("same transaction as the EAV write, so the two never
+    diverge") was only true for a full-column re-upload; a narrower one
+    is exactly how they diverged. Already-corrupted wide rows aren't
+    self-healed by this fix alone — see scripts/backfill_lmv_wide.py
+    (safe to re-run, fully rebuilds every wide row from the EAV source of
+    truth) for repairing history."""
     if not stock_rows:
         return 0
     total = 0
@@ -204,7 +227,7 @@ async def upsert_wide_for_date(
             set_={
                 "symbol": stmt.excluded.symbol,
                 "display_name": stmt.excluded.display_name,
-                "metrics": stmt.excluded.metrics,
+                "metrics": LmvDailySnapshotWide.metrics.op("||")(stmt.excluded.metrics),
                 "updated_at": func.now(),
             },
         )

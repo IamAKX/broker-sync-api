@@ -207,3 +207,55 @@ def test_range_payload_reads_wide_table_when_ready(monkeypatch):
                 {"symbol": "INFY", "display_name": "Infosys", "metrics": {"High": 1810.0}}]},
         ]
     }
+
+
+# ── lmv_snapshot_repo.upsert_wide_for_date: JSONB merge, not replace ────────
+# (issue #50) — a second same-day upload whose metrics dict is NARROWER than
+# an earlier one (e.g. a live-computed column like CWTO that couldn't be
+# resolved that particular tick) must not erase the earlier upload's columns
+# from the wide read model. No real Postgres here (same rationale as every
+# other repo test in this suite) — asserts on the actual generated SQL's
+# shape instead of a live merge result.
+
+def test_upsert_wide_for_date_merges_metrics_instead_of_replacing(monkeypatch):
+    import asyncio as _asyncio
+    from datetime import date as _date
+    from sqlalchemy.dialects import postgresql
+    from app.repositories import lmv_snapshot_repo
+    from app.models.tenant import LmvDailySnapshotWide
+
+    captured = {}
+
+    class _FakeResult:
+        rowcount = 1
+
+    class _FakeSession:
+        async def execute(self, stmt):
+            captured["stmt"] = stmt
+            return _FakeResult()
+
+    rows = [{
+        "stock_id": 1, "symbol": "ABB", "display_name": "ABB",
+        "metrics": {"CWTO": 12.5},
+    }]
+    _asyncio.run(lmv_snapshot_repo.upsert_wide_for_date(_FakeSession(), _date(2026, 9, 18), rows))
+
+    compiled = str(captured["stmt"].compile(dialect=postgresql.dialect()))
+    # The metrics column must be combined with the JSONB || operator
+    # against the TABLE's own existing value, not just assigned the new
+    # payload's value outright — that's what makes an omitted key survive.
+    assert '"LmvDailySnapshotWide".metrics || excluded.metrics' in compiled
+    assert "metrics = excluded.metrics" not in compiled   # the old (bug) shape
+
+
+def test_upsert_wide_for_date_no_rows_is_noop():
+    import asyncio as _asyncio
+    from datetime import date as _date
+    from app.repositories import lmv_snapshot_repo
+
+    class _FakeSession:
+        async def execute(self, stmt):
+            raise AssertionError("should never execute anything for an empty batch")
+
+    result = _asyncio.run(lmv_snapshot_repo.upsert_wide_for_date(_FakeSession(), _date(2026, 9, 18), []))
+    assert result == 0
