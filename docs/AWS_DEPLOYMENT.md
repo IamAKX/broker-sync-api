@@ -200,6 +200,81 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now brokersync
 ```
 
+### Automated Inception Vendor Fetch (systemd timer)
+
+A separate, independent oneshot job — pulls new NFOFUT data from Equal
+Solution into the shared central dataset automatically, daily at 5:30pm IST
+(12:00pm UTC), replicating what "Fetch from Equal Solution" does manually
+in Inception > Data & Settings. Runs `scripts/vendor_fetch_cron.py`, which
+calls `services.inception_vendor_sync_service.sync_nfofut_from_vendor`
+directly — no HTTP, no JWT, uses this server's own `EQLDATA_EMAIL`/
+`EQLDATA_PASSWORD` from `.env` (confirm these are set before enabling the
+timer — the desktop app's own "Fetch from Equal Solution" button sends its
+own hardcoded values instead of relying on these, so they may not already
+be configured here; see `screens/inception_settings.py`'s
+`_VENDOR_USERNAME_DISPLAY`/`_VENDOR_PASSWORD_DISPLAY` in the client repo for
+the values to use if so).
+
+Entirely separate from the `brokersync` gunicorn service above — a systemd
+timer outside gunicorn's multi-worker model, not an in-process scheduler
+(this backend runs 3 gunicorn workers with no distributed-lock mechanism,
+so an in-process APScheduler-style job would risk firing 3x/day).
+
+```bash
+sudo tee /etc/systemd/system/brokersync-vendor-fetch.service <<'EOF'
+[Unit]
+Description=Broker Sync — Inception vendor fetch (Equal Solution)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/broker-sync-api
+EnvironmentFile=/home/ec2-user/broker-sync-api/.env
+ExecStart=/home/ec2-user/broker-sync-api/.venv/bin/python scripts/vendor_fetch_cron.py
+StandardOutput=journal
+StandardError=journal
+EOF
+
+sudo tee /etc/systemd/system/brokersync-vendor-fetch.timer <<'EOF'
+[Unit]
+Description=Run brokersync-vendor-fetch daily at 5:30pm IST
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now brokersync-vendor-fetch.timer
+```
+
+`OnCalendar` is written in explicit UTC (systemd supports a timezone suffix
+in calendar specs) rather than relying on the instance's own system
+timezone, matching this codebase's own consistent `datetime.now(timezone.
+utc)` convention throughout — correct regardless of what `timedatectl`
+reports on the box, and immune to any future instance-timezone change.
+`Persistent=true` means a run missed while the instance was down (e.g. a
+reboot right at 12:00 UTC) fires once it's back up instead of silently
+skipping that day.
+
+Smoke test before trusting the schedule — run it once by hand and check for
+a clean exit and a log line, not a traceback:
+
+```bash
+sudo systemctl start brokersync-vendor-fetch.service
+sudo journalctl -u brokersync-vendor-fetch -n 50 --no-pager
+```
+
+Check the next scheduled run landed correctly:
+
+```bash
+systemctl list-timers brokersync-vendor-fetch.timer
+```
+
 ## 6. Run the Central Migration
 
 The central (`public`) Alembic chain does not run automatically — run it once, either
