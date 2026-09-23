@@ -259,3 +259,114 @@ def test_upsert_wide_for_date_no_rows_is_noop():
 
     result = _asyncio.run(lmv_snapshot_repo.upsert_wide_for_date(_FakeSession(), _date(2026, 9, 18), []))
     assert result == 0
+
+
+# ── lmv_snapshot_service.upsert_lmv_snapshot: skips null-valued metrics ────
+# (issue #52) — a metric explicitly sent as null (e.g. a still-uncomputed
+# live-overlay column like CWTO on a client that hasn't picked up the
+# client-side omit-don't-null fix yet) must not overwrite a previously-good
+# value for the same (trade_date, stock, metric) in either the EAV table
+# or the wide read model — defense in depth alongside the client fix (see
+# services.scheduled_jobs._build_lmv_snapshot_payload in the client repo).
+
+def test_upsert_lmv_snapshot_skips_none_valued_metrics(monkeypatch):
+    import asyncio
+    from datetime import date
+    from app.schemas.historic import UploadRow
+    from app.schemas.lmv_snapshot import LmvSnapshotUploadRequest
+    from app.services import lmv_snapshot_service
+
+    async def fake_is_holiday(session, trade_date):
+        return False
+
+    async def fake_bulk_get_or_create_stocks(session, pairs):
+        return {symbol: i + 1 for i, (symbol, _display) in enumerate(pairs)}
+
+    captured = {}
+
+    async def fake_bulk_get_or_create_metrics(session, metric_types):
+        captured["metric_types"] = dict(metric_types)
+        return {name: i + 1 for i, name in enumerate(metric_types)}
+
+    async def fake_bulk_upsert_lmv_snapshot_values(session, value_rows):
+        captured["value_rows"] = value_rows
+        return len(value_rows)
+
+    async def fake_upsert_wide_for_date(session, trade_date, wide_rows):
+        captured["wide_rows"] = wide_rows
+        return len(wide_rows)
+
+    monkeypatch.setattr(lmv_snapshot_service, "is_holiday", fake_is_holiday)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_get_or_create_stocks", fake_bulk_get_or_create_stocks)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_get_or_create_metrics", fake_bulk_get_or_create_metrics)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_upsert_lmv_snapshot_values", fake_bulk_upsert_lmv_snapshot_values)
+    monkeypatch.setattr(lmv_snapshot_service, "upsert_wide_for_date", fake_upsert_wide_for_date)
+
+    class _FakeSession:
+        async def commit(self):
+            pass
+
+    payload = LmvSnapshotUploadRequest(
+        trade_date=date(2026, 9, 18),
+        rows=[UploadRow(symbol="ABB", display_name="ABB", metrics={"CLOSE": 100.0, "CWTO": None})],
+    )
+
+    asyncio.run(lmv_snapshot_service.upsert_lmv_snapshot(_FakeSession(), payload))
+
+    assert "CWTO" not in captured["metric_types"]
+    assert "CLOSE" in captured["metric_types"]
+    assert len(captured["value_rows"]) == 1   # only CLOSE, no row at all for the null CWTO
+    assert captured["wide_rows"][0]["metrics"] == {"CLOSE": 100.0}
+    assert "CWTO" not in captured["wide_rows"][0]["metrics"]
+
+
+def test_upsert_lmv_snapshot_all_null_metrics_for_a_stock_uploads_nothing_for_it(monkeypatch):
+    """The degenerate case: every metric for a stock is null this upload
+    (e.g. a symbol with no live tick at all yet) — must not crash, and
+    must produce zero EAV rows and an empty wide metrics dict for it."""
+    import asyncio
+    from datetime import date
+    from app.schemas.historic import UploadRow
+    from app.schemas.lmv_snapshot import LmvSnapshotUploadRequest
+    from app.services import lmv_snapshot_service
+
+    async def fake_is_holiday(session, trade_date):
+        return False
+
+    async def fake_bulk_get_or_create_stocks(session, pairs):
+        return {symbol: 1 for symbol, _display in pairs}
+
+    captured = {}
+
+    async def fake_bulk_get_or_create_metrics(session, metric_types):
+        captured["metric_types"] = dict(metric_types)
+        return {}
+
+    async def fake_bulk_upsert_lmv_snapshot_values(session, value_rows):
+        captured["value_rows"] = value_rows
+        return len(value_rows)
+
+    async def fake_upsert_wide_for_date(session, trade_date, wide_rows):
+        captured["wide_rows"] = wide_rows
+        return len(wide_rows)
+
+    monkeypatch.setattr(lmv_snapshot_service, "is_holiday", fake_is_holiday)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_get_or_create_stocks", fake_bulk_get_or_create_stocks)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_get_or_create_metrics", fake_bulk_get_or_create_metrics)
+    monkeypatch.setattr(lmv_snapshot_service, "bulk_upsert_lmv_snapshot_values", fake_bulk_upsert_lmv_snapshot_values)
+    monkeypatch.setattr(lmv_snapshot_service, "upsert_wide_for_date", fake_upsert_wide_for_date)
+
+    class _FakeSession:
+        async def commit(self):
+            pass
+
+    payload = LmvSnapshotUploadRequest(
+        trade_date=date(2026, 9, 18),
+        rows=[UploadRow(symbol="ABB", display_name="ABB", metrics={"CWTO": None})],
+    )
+
+    asyncio.run(lmv_snapshot_service.upsert_lmv_snapshot(_FakeSession(), payload))
+
+    assert captured["metric_types"] == {}
+    assert captured["value_rows"] == []
+    assert captured["wide_rows"][0]["metrics"] == {}

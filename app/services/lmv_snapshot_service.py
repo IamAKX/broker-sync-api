@@ -49,6 +49,23 @@ async def upsert_lmv_snapshot(
     LmvDailySnapshot archive table instead of HistoricalStockValue. Stock and
     Metric rows are shared across both tables — a symbol or column name
     already registered by a historic upload is reused here, and vice versa.
+
+    A metric whose value is explicit JSON null is skipped entirely — never
+    written to either the EAV table (LmvDailySnapshot) or the wide read
+    model (LmvDailySnapshotWide) — issue #52: the client now omits a
+    still-uncomputed live-overlay column (CWTO and friends) from the
+    upload payload rather than sending null for it (see services.
+    scheduled_jobs._build_lmv_snapshot_payload in the client repo), but
+    this is a defense-in-depth backstop for any client version that
+    still sends an explicit null: without it, a second same-day upload
+    (e.g. a manual re-save right after an app restart, before enough
+    live ticks had arrived to recompute a column that already had a
+    good value from an earlier upload that same trade_date) would
+    silently overwrite that earlier value with null in both tables —
+    LmvDailySnapshot via bulk_upsert_lmv_snapshot_values' own per-metric
+    upsert, and LmvDailySnapshotWide even after the metrics-JSONB-merge
+    fix (issue #50), since that merge only protects a key that's ABSENT
+    from the new payload, not one present with an explicit null.
     """
     if payload.trade_date > date.today():
         raise InvalidTradeDateError("trade_date cannot be in the future")
@@ -61,6 +78,8 @@ async def upsert_lmv_snapshot(
     metric_types: dict[str, str] = {}
     for row in payload.rows:
         for metric_name, value in row.metrics.items():
+            if value is None:
+                continue
             metric_types.setdefault(metric_name, _infer_data_type(value))
     metric_name_to_id = await bulk_get_or_create_metrics(session, metric_types)
 
@@ -68,6 +87,8 @@ async def upsert_lmv_snapshot(
     for row in payload.rows:
         stock_id = symbol_to_stock_id[row.symbol]
         for metric_name, value in row.metrics.items():
+            if value is None:
+                continue
             metric_id = metric_name_to_id[metric_name]
             is_number = metric_types[metric_name] == "number"
             # A metric's type is inferred from its first-seen value; later rows for the
@@ -93,6 +114,8 @@ async def upsert_lmv_snapshot(
     for row in payload.rows:
         metrics: dict = {}
         for metric_name, value in row.metrics.items():
+            if value is None:
+                continue
             is_number = metric_types[metric_name] == "number"
             if is_number:
                 metrics[metric_name] = value if isinstance(value, (int, float)) else None
