@@ -29,6 +29,10 @@ class StrategySignalUpsertRequest(BaseModel):
     entry_time: datetime | None = None
     entry_price: float | None = None
     resolved_at: datetime | None = None
+    # Live tick price at resolution — see app/models/tenant.py::StrategySignal
+    # .exit_price for the full rationale. None for a still-open signal, and
+    # for any resolution the desktop client hasn't been updated to send it for.
+    exit_price: float | None = None
     running_high: float | None = None
     running_low: float | None = None
     score: float | None = None
@@ -47,6 +51,7 @@ class StrategySignalResponse(BaseModel):
     entry_time: datetime | None
     entry_price: float | None
     resolved_at: datetime | None
+    exit_price: float | None
     running_high: float | None
     running_low: float | None
     score: float | None

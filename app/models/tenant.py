@@ -293,6 +293,17 @@ class StrategySignal(TenantBase):
     entry_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     entry_price: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # The live tick price actually observed at the moment this signal
+    # resolved (target hit / stopped out / intraday window close) — added
+    # for the desktop client's Reports feature, which needs a real exit
+    # price to compute directional % yield rather than approximating with
+    # the target/SL formula's threshold value. Only "intraday_closed"
+    # populated this historically (the client's close_intraday_signals);
+    # 'stopped_out'/'all_targets_achieved' now set it too — see that repo's
+    # services/strategy_alerts/engine.py::_update_open_signal. Nullable and
+    # additive: existing rows (and any client older than this change)
+    # simply have it as None — report code must tolerate that.
+    exit_price: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
     running_high: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
     running_low: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)
     score: Mapped[float | None] = mapped_column(DECIMAL(18, 4), nullable=True)

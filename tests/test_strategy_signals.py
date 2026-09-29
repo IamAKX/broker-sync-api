@@ -23,8 +23,8 @@ def test_tenant_metadata_registers_strategy_signal_model():
     assert columns == {
         "id", "user_id", "strategy_id", "strategy_name", "symbol", "sector",
         "direction", "status", "entry_time", "entry_price", "resolved_at",
-        "running_high", "running_low", "score", "risk_reward", "metrics",
-        "event_time", "created_at", "updated_at",
+        "exit_price", "running_high", "running_low", "score", "risk_reward",
+        "metrics", "event_time", "created_at", "updated_at",
     }
 
 
@@ -276,6 +276,7 @@ def test_upsert_signal_derives_event_time_from_resolved_at_when_present(monkeypa
             entry_time = fields["entry_time"]
             entry_price = fields["entry_price"]
             resolved_at = fields["resolved_at"]
+            exit_price = fields["exit_price"]
             running_high = fields["running_high"]
             running_low = fields["running_low"]
             score = fields["score"]
@@ -322,6 +323,7 @@ def test_upsert_signal_falls_back_to_entry_time_when_still_open(monkeypatch):
             entry_time = fields["entry_time"]
             entry_price = fields["entry_price"]
             resolved_at = fields["resolved_at"]
+            exit_price = fields["exit_price"]
             running_high = fields["running_high"]
             running_low = fields["running_low"]
             score = fields["score"]
