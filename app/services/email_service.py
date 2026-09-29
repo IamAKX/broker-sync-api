@@ -92,3 +92,60 @@ def send_email(to_emails: list[str], subject: str, body: str) -> None:
 
 async def send_email_async(to_emails: list[str], subject: str, body: str) -> None:
     await run_in_threadpool(send_email, to_emails, subject, body)
+
+
+def validate_recipients(raw: list[str]) -> list[str]:
+    """Validates/de-dupes/caps an EXPLICIT, caller-supplied recipient list
+    (e.g. a desktop-client report's own recipients — see routers/
+    notifications.py's send_report_email) — unlike resolve_email_recipients
+    above, there is deliberately no "fall back to the account's own email"
+    here: an explicit list with no valid entries is a caller error the
+    route should reject (400), not silently redirect to somewhere the
+    caller didn't ask for."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str):
+            continue
+        email = entry.strip()
+        if not email or not _EMAIL_RE.match(email):
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(email)
+        if len(out) >= MAX_RECIPIENTS:
+            break
+    return out
+
+
+def send_email_with_attachment(to_emails: list[str], subject: str, body: str,
+                                attachment_bytes: bytes, attachment_filename: str) -> None:
+    """Same delivery shape as send_email (one message, one To header listing
+    every recipient, explicit Date/Message-ID/From) plus a single binary
+    attachment — used for emailing a generated report PDF."""
+    message = EmailMessage()
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_address))
+    message["To"] = ", ".join(to_emails)
+    message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain="gmail.com")
+    message.set_content(body)
+    message.add_attachment(
+        attachment_bytes, maintype="application", subtype="pdf", filename=attachment_filename,
+    )
+
+    try:
+        with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
+            smtp.login(settings.smtp_user, settings.smtp_password)
+            smtp.send_message(message)
+    except (smtplib.SMTPException, OSError) as exc:
+        raise EmailDeliveryError(f"Couldn't send email: {exc}") from exc
+
+
+async def send_email_with_attachment_async(to_emails: list[str], subject: str, body: str,
+                                            attachment_bytes: bytes, attachment_filename: str) -> None:
+    await run_in_threadpool(
+        send_email_with_attachment, to_emails, subject, body, attachment_bytes, attachment_filename
+    )

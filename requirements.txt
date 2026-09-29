@@ -3,6 +3,10 @@ uvicorn[standard]==0.34.0
 gunicorn==23.0.0
 orjson==3.10.12
 requests==2.32.3
+# Required by FastAPI's Form()/UploadFile parsing — used by /notifications/
+# email/send-report (desktop client's Reports feature, emailing a
+# generated PDF as a multipart/form-data upload).
+python-multipart==0.0.20
 
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0

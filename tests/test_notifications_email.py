@@ -253,3 +253,154 @@ def test_send_test_email_still_wraps_single_recipient_in_a_list(monkeypatch):
 
     assert response.status_code == 204
     assert sent["to_emails"] == ["someone@example.com"]
+
+
+# ── validate_recipients ──────────────────────────────────────────────────
+
+def test_validate_recipients_dedupes_case_insensitively():
+    from app.services import email_service
+
+    result = email_service.validate_recipients(["a@example.com", "A@EXAMPLE.COM", "b@example.com"])
+    assert result == ["a@example.com", "b@example.com"]
+
+
+def test_validate_recipients_drops_malformed_and_returns_empty_when_none_valid():
+    from app.services import email_service
+
+    assert email_service.validate_recipients(["not-an-email", "", None]) == []
+
+
+def test_validate_recipients_caps_at_max():
+    from app.services import email_service
+
+    many = [f"user{i}@example.com" for i in range(email_service.MAX_RECIPIENTS + 5)]
+    result = email_service.validate_recipients(many)
+    assert len(result) == email_service.MAX_RECIPIENTS
+
+
+# ── send_email_with_attachment ───────────────────────────────────────────
+
+def test_send_email_with_attachment_includes_attachment_and_recipients():
+    from app.services import email_service
+
+    fake_smtp = _fake_smtp()
+    with patch("smtplib.SMTP_SSL", return_value=fake_smtp):
+        email_service.send_email_with_attachment(
+            ["a@example.com", "b@example.com"], "Weekly Report", "See attached.",
+            b"%PDF-1.4 fake pdf bytes", "report.pdf",
+        )
+
+    sent_message = fake_smtp.send_message.call_args[0][0]
+    assert sent_message["To"] == "a@example.com, b@example.com"
+    assert sent_message["Subject"] == "Weekly Report"
+    assert sent_message.is_multipart()
+    attachments = list(sent_message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "report.pdf"
+    assert attachments[0].get_content() == b"%PDF-1.4 fake pdf bytes"
+
+
+def test_send_email_with_attachment_wraps_smtp_exceptions():
+    from app.exceptions import EmailDeliveryError
+    from app.services import email_service
+
+    with patch("smtplib.SMTP_SSL", side_effect=smtplib.SMTPException("boom")):
+        with pytest.raises(EmailDeliveryError):
+            email_service.send_email_with_attachment(["a@example.com"], "S", "B", b"x", "r.pdf")
+
+
+# ── /notifications/email/send-report — real HTTP round trip ─────────────
+
+def test_send_report_email_delivers_attachment_to_parsed_recipients(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.services import email_service
+
+    sent = {}
+
+    async def fake_send_with_attachment_async(to_emails, subject, body, data, filename):
+        sent["to_emails"] = to_emails
+        sent["subject"] = subject
+        sent["data"] = data
+        sent["filename"] = filename
+
+    monkeypatch.setattr(email_service, "send_email_with_attachment_async", fake_send_with_attachment_async)
+
+    client = TestClient(_test_app_with_fake_auth())
+    response = client.post(
+        "/notifications/email/send-report",
+        data={"recipients": "a@example.com;b@example.com", "subject": "My Report"},
+        files={"attachment": ("my_report.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 204
+    assert sent["to_emails"] == ["a@example.com", "b@example.com"]
+    assert sent["subject"] == "My Report"
+    assert sent["data"] == b"%PDF-1.4 fake"
+    assert sent["filename"] == "my_report.pdf"
+
+
+def test_send_report_email_rejects_no_valid_recipients(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.services import email_service
+
+    monkeypatch.setattr(
+        email_service, "send_email_with_attachment_async",
+        lambda *a, **k: pytest.fail("should not be called"),
+    )
+
+    client = TestClient(_test_app_with_fake_auth())
+    response = client.post(
+        "/notifications/email/send-report",
+        data={"recipients": "not-an-email", "subject": "My Report"},
+        files={"attachment": ("r.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_send_report_email_rejects_non_pdf_attachment(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.services import email_service
+
+    monkeypatch.setattr(
+        email_service, "send_email_with_attachment_async",
+        lambda *a, **k: pytest.fail("should not be called"),
+    )
+
+    client = TestClient(_test_app_with_fake_auth())
+    response = client.post(
+        "/notifications/email/send-report",
+        data={"recipients": "a@example.com", "subject": "My Report"},
+        files={"attachment": ("r.txt", b"not a pdf", "text/plain")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_send_report_email_rejects_oversized_attachment(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.routers import notifications as notifications_router
+    from app.services import email_service
+
+    monkeypatch.setattr(notifications_router, "_MAX_ATTACHMENT_BYTES", 10)
+    monkeypatch.setattr(
+        email_service, "send_email_with_attachment_async",
+        lambda *a, **k: pytest.fail("should not be called"),
+    )
+
+    client = TestClient(_test_app_with_fake_auth())
+    response = client.post(
+        "/notifications/email/send-report",
+        data={"recipients": "a@example.com", "subject": "My Report"},
+        files={"attachment": ("r.pdf", b"%PDF-1.4 " + b"x" * 100, "application/pdf")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_notifications_routes_include_send_report():
+    from app.main import create_app
+
+    app = create_app()
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    assert "/notifications/email/send-report" in paths
