@@ -91,9 +91,19 @@ async def sync_nfofut_from_vendor(
     token = await asyncio.to_thread(
         eqldata_client.generate_auth_token, email, password, settings.eqldata_base_url,
     )
-    all_instruments = await asyncio.to_thread(
-        eqldata_client.get_instrument_list, token, settings.eqldata_base_url,
-    )
+    try:
+        all_instruments = await asyncio.to_thread(
+            eqldata_client.get_instrument_list, token, settings.eqldata_base_url,
+        )
+    except eqldata_client.VendorTokenRejectedError:
+        # Same "another login replaced our token" case as the range fetch
+        # below — log in again and retry once (a second 401 propagates).
+        token = await asyncio.to_thread(
+            eqldata_client.generate_auth_token, email, password, settings.eqldata_base_url,
+        )
+        all_instruments = await asyncio.to_thread(
+            eqldata_client.get_instrument_list, token, settings.eqldata_base_url,
+        )
     symbols = _continuous_futures(all_instruments.get(exchange, []))
 
     instrument_by_symbol = await instrument_repo.get_or_create_instruments(session, symbols)

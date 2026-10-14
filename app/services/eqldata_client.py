@@ -88,6 +88,10 @@ def get_instrument_list(token: str, base_url: str) -> dict[str, list[str]]:
     except requests.RequestException as exc:
         raise VendorApiError(f"Could not reach Equal Solution: {exc}") from exc
 
+    if response.status_code == 401:
+        raise VendorTokenRejectedError(
+            f"Equal Solution instrument list failed (HTTP 401): {_error_detail(response)}"
+        )
     if response.status_code != 200:
         raise VendorApiError(
             f"Equal Solution instrument list failed (HTTP {response.status_code}): {_error_detail(response)}"

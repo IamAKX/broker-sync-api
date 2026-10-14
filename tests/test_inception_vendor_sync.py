@@ -675,3 +675,57 @@ def test_parse_row_accepts_exchange_prefixed_instrument():
         "LOW": "95", "CLOSE": "102", "VOL": "1000", "OPENINT": "",
     }
     assert _parse_row(raw, {"ABB_I": _Instr()})["instrument_id"] == 42
+
+
+def test_get_instrument_list_raises_token_rejected_on_401(monkeypatch):
+    from app.services import eqldata_client
+
+    monkeypatch.setattr(
+        eqldata_client.requests, "post",
+        lambda *a, **kw: _FakeResponse(401, {"message": "Token not found"}),
+    )
+    with pytest.raises(eqldata_client.VendorTokenRejectedError, match="Token not found"):
+        eqldata_client.get_instrument_list("tok", "https://api.equalsolution.net")
+
+
+def test_sync_relogs_in_and_retries_instrument_list_after_401(monkeypatch):
+    """Issue #65: "Token not found" can also come from the instrument-list
+    call right after login (another login replaced the token) — it must
+    re-login and retry once, like the range fetch does."""
+    from datetime import timedelta
+    from app.services import eqldata_client, inception_vendor_sync_service as svc
+
+    logins, list_calls = [], []
+
+    def _login(email, password, base):
+        logins.append(1)
+        return f"tok{len(logins)}"
+
+    def _list(token, base):
+        list_calls.append(token)
+        if token == "tok1":
+            raise eqldata_client.VendorTokenRejectedError("Token not found")
+        return {"NFOFUT": []}
+
+    monkeypatch.setattr(eqldata_client, "generate_auth_token", _login)
+    monkeypatch.setattr(eqldata_client, "get_instrument_list", _list)
+
+    last = date.today() - timedelta(days=3)
+
+    async def _latest(session): return last
+    async def _noop(*a, **kw): return None
+    async def _inst(session, symbols): return {}
+    async def _bulk(*a, **kw): return 0
+    class _Sess:
+        async def commit(self): pass
+
+    repo = svc.instrument_repo
+    monkeypatch.setattr(repo, "get_latest_trade_date", _latest)
+    monkeypatch.setattr(repo, "get_or_create_instruments", _inst)
+    monkeypatch.setattr(repo, "bulk_upsert_eod_bars", _bulk)
+    monkeypatch.setattr(repo, "bulk_upsert_trading_calendar", _noop)
+    monkeypatch.setattr(repo, "update_instrument_date_bounds", _noop)
+
+    result = asyncio.run(svc.sync_nfofut_from_vendor(_Sess(), email="e", password="p", exchange="NFOFUT"))
+    assert result.status == "ok"
+    assert len(logins) == 2 and list_calls == ["tok1", "tok2"]
