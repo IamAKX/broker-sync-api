@@ -112,10 +112,22 @@ async def sync_nfofut_from_vendor(
     for symbol_batch in _chunk_list(symbols, _MAX_SYMBOLS_PER_REQUEST):
         prefixed = [f"{exchange}:{sym}" for sym in symbol_batch]
         for chunk_start, chunk_end in _chunk_dates(date_from, today, _MAX_RANGE_DAYS):
-            csv_rows = await asyncio.to_thread(
-                eqldata_client.fetch_eod_range_rows, token, prefixed,
-                chunk_start.isoformat(), chunk_end.isoformat(), settings.eqldata_base_url,
-            )
+            try:
+                csv_rows = await asyncio.to_thread(
+                    eqldata_client.fetch_eod_range_rows, token, prefixed,
+                    chunk_start.isoformat(), chunk_end.isoformat(), settings.eqldata_base_url,
+                )
+            except eqldata_client.VendorTokenRejectedError:
+                # The vendor invalidated the token we just logged in with
+                # (another login on this account replaces it) — log in again
+                # and retry this chunk once; a second 401 propagates.
+                token = await asyncio.to_thread(
+                    eqldata_client.generate_auth_token, email, password, settings.eqldata_base_url,
+                )
+                csv_rows = await asyncio.to_thread(
+                    eqldata_client.fetch_eod_range_rows, token, prefixed,
+                    chunk_start.isoformat(), chunk_end.isoformat(), settings.eqldata_base_url,
+                )
             for raw in csv_rows:
                 parsed = _parse_row(raw, instrument_by_symbol)
                 if parsed is None:
@@ -163,7 +175,12 @@ def _parse_row(raw: dict, instrument_by_symbol: dict) -> dict | None:
     can't use (an instrument this batch didn't request — shouldn't happen,
     but never crash the whole sync over one row — or an unparseable date/
     number)."""
-    instrument = instrument_by_symbol.get(str(raw.get("INSTRUMENT", "")).strip())
+    # eqldata's EOD output now carries the bare symbol ("ABB_I"); older
+    # responses carried "EXCHANGE:SYMBOL" — accept both.
+    symbol = str(raw.get("INSTRUMENT", "")).strip()
+    if ":" in symbol:
+        symbol = symbol.split(":", 1)[1]
+    instrument = instrument_by_symbol.get(symbol)
     if instrument is None:
         return None
     try:

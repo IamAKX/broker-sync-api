@@ -49,6 +49,13 @@ class VendorRateLimitError(VendorApiError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class VendorTokenRejectedError(VendorApiError):
+    """401 ("Token not found") from the EOD-range endpoint even though the
+    login a moment earlier succeeded — the vendor dropped/rotated the token
+    (e.g. another login on the same account, such as the daily cron or a
+    second button click, replaced it). Callers can log in again and retry."""
+
+
 def generate_auth_token(email: str, password: str, base_url: str) -> str:
     """Raises VendorAuthError on any non-200 response, a missing token in an
     otherwise-200 response, or a network failure."""
@@ -130,6 +137,10 @@ def fetch_eod_range_rows(
         raise VendorRateLimitError(
             f"Equal Solution rate/quota limit hit: {_error_detail(response, body)}",
             retry_after_seconds=body.get("retry_after_seconds"),
+        )
+    if response.status_code == 401:
+        raise VendorTokenRejectedError(
+            f"Equal Solution EOD range fetch failed (HTTP 401): {_error_detail(response)}"
         )
     if response.status_code != 200:
         raise VendorApiError(
