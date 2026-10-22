@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     smtp_user: str
     smtp_password: str
     smtp_from: str = ""
-    smtp_from_name: str = "Broker Sync"
+    smtp_from_name: str = "Fuku Lens"
 
     # Equal Solution (eqldata) vendor account — server-side only, never sent
     # to or accepted from a client (see app/services/inception_vendor_sync_
