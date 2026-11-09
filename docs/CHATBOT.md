@@ -1,8 +1,8 @@
 # AI Chatbot ("Ask Fuku")
 
-Natural-language Q&A over the caller's Fuku Lens data, using AWS Bedrock. Phase 1 is
-deliberately simple: **question → guarded read-only SQL → answer**. Setup of the AWS side
-is in [`BEDROCK_SETUP.md`](BEDROCK_SETUP.md); the HTTP contract is in
+Natural-language Q&A over the caller's Fuku Lens data, using the Anthropic API (Claude). Phase 1 is
+deliberately simple: **question → guarded read-only SQL → answer**. The only external setup
+is an Anthropic API key (`ANTHROPIC_API_KEY`); the HTTP contract is in
 [`API_CONTRACT.md`](API_CONTRACT.md#chat).
 
 ## What it can and cannot answer
@@ -22,8 +22,8 @@ data and the answer says so with its date — the chat has no tick feed.
 ## Pipeline (`app/services/chat/pipeline.py`)
 
 ```
-question ─▶ Bedrock Guardrail ─▶ PLANNER call ─▶ sql_guard ─▶ sandboxed run ─▶ ANSWER call (streamed)
-             (topics, attacks)    JSON plan        (AST check)   (read-only tx)     (rows only)
+question ─▶ PLANNER call ─▶ sql_guard ─▶ sandboxed run ─▶ ANSWER call (streamed)
+             JSON plan      (AST check)   (read-only tx)     (rows only)
 ```
 
 1. **Planner** (`prompts.PLANNER_RULES` + catalog + live data-freshness + LMV metric keys)
@@ -40,21 +40,19 @@ Streamed events: `stage` (`understanding → generating_query → running_query 
 writing_answer`), `sql`, `rows`, `token`, `answer`, `done`, `error` — the desktop UI animates
 off the `stage` events.
 
-## Guardrails — five independent layers
+## Guardrails — four independent layers
 
-1. **Bedrock Guardrail** (`scripts/bedrock/guardrail.json`): denied topics, prompt-attack
-   filter, content filters, PII. Applied to the user's question on every call and to model output.
-2. **Planner scope rules**: refuse anything outside markets/stocks/Fuku Lens; treat the
+1. **Planner scope rules**: refuse anything outside markets/stocks/Fuku Lens; treat the
    question as data, never instructions.
-3. **SQL validator** (`sql_guard.py`, hard code, not prompt): exactly one `SELECT`; only the
+2. **SQL validator** (`sql_guard.py`, hard code, not prompt): exactly one `SELECT`; only the
    seven documented views; no schema-qualified names, DML/DDL, `INTO`, locking, parameters,
    table functions; unknown functions rejected (`pg_sleep`, `set_config`, `dblink`,
    `pg_read_file`…). The **re-rendered AST** is what executes, wrapped in a `LIMIT`.
-4. **Sandbox** (`sql_runner.py`): the model never sees real tables. Per-request `TEMP` views
+3. **Sandbox** (`sql_runner.py`): the model never sees real tables. Per-request `TEMP` views
    point at the caller's own tenant schema (from the verified JWT) and hard-code
    `user_id = <caller>` on per-user tables; then the transaction is switched to
    `READ ONLY`, given a statement timeout, and always rolled back.
-5. **Answer discipline + limits**: answer step may only use returned rows; per-user rate limit;
+4. **Answer discipline + limits**: answer step may only use returned rows; per-user rate limit;
    question/history/result size caps.
 
 Known limits: the DB role is the app's normal one (read-only is enforced per transaction, not by a
@@ -84,15 +82,14 @@ All environment variables (see `app/core/config.py`, `.env.example`):
 | Variable | Default | Meaning |
 |---|---|---|
 | `CHAT_ENABLED` | `false` | Master switch; `/chat/ask` returns 503 `chat_disabled` when off |
-| `CHAT_AWS_REGION` | `ap-south-1` | Bedrock region |
-| `CHAT_MODEL_ID` | `in.anthropic.claude-haiku-4-5-20251001-v1:0` | Model / inference profile (any Converse-capable model) |
+| `ANTHROPIC_API_KEY` | *(blank)* | Secret API key from console.anthropic.com. Server-side only; never commit it |
+| `CHAT_MODEL_ID` | `claude-haiku-4-5` | Anthropic model id |
 | `CHAT_ANSWER_MODEL_ID` | *(same)* | Optional different model for the answer step |
 | `CHAT_SQL_TEMPERATURE` | `0.0` | Planner/SQL temperature |
 | `CHAT_ANSWER_TEMPERATURE` | `0.2` | Answer temperature |
 | `CHAT_TOP_P` | *(unset)* | Nucleus sampling for both calls. Left unset on purpose: some newer Claude models reject `temperature` and `top_p` together |
 | `CHAT_SQL_MAX_TOKENS` / `CHAT_ANSWER_MAX_TOKENS` | `1200` | Output token caps |
-| `CHAT_GUARDRAIL_ID` / `CHAT_GUARDRAIL_VERSION` | *(blank)* / `DRAFT` | Blank id disables the Bedrock guardrail (other layers stay) |
-| `CHAT_BEDROCK_READ_TIMEOUT` / `CHAT_BEDROCK_MAX_ATTEMPTS` | `60` / `2` | boto client behaviour |
+| `CHAT_LLM_TIMEOUT` / `CHAT_LLM_MAX_RETRIES` | `60` / `2` | Anthropic client timeout (seconds) and automatic retries |
 | `CHAT_SQL_TIMEOUT_MS` | `8000` | Postgres statement timeout for generated SQL |
 | `CHAT_SQL_MAX_ROWS` | `200` | Row cap on the query |
 | `CHAT_ANSWER_MAX_ROWS` / `CHAT_ANSWER_MAX_CHARS` | `60` / `24000` | How much result data the answer model sees |
@@ -118,7 +115,6 @@ Each question logs one structured `chat_query` line (user, tenant schema, kind, 
 ## Tests
 
 `tests/test_chat_sql_guard.py` (28 attack/validity cases), `tests/test_chat_pipeline.py`
-(pipeline with a fake Bedrock: happy path, refusal, guardrail block, repair loop, history
+(pipeline with a fake LLM client: happy path, refusal, model-refusal block, repair loop, history
 sanitising, rate limit). The sandbox was additionally verified against a real Postgres
-(views, read-only, timeout, rollback). Not covered by automated tests: live Bedrock calls
-(see the pending billing step in `BEDROCK_SETUP.md`).
+(views, read-only, timeout, rollback). Not covered by automated tests: live Anthropic API calls.

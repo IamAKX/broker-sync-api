@@ -26,7 +26,6 @@ async def chat_status_route(_: CurrentUser = Depends(get_current_user)) -> ChatS
     return ChatStatusOut(
         enabled=settings.chat_enabled,
         model_id=settings.chat_model_id,
-        guardrail_enabled=bool(settings.chat_guardrail_id),
         suggested_questions=SUGGESTED_QUESTIONS,
     )
 

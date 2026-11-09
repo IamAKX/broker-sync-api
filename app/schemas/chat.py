@@ -18,5 +18,4 @@ class ChatAskRequest(BaseModel):
 class ChatStatusOut(BaseModel):
     enabled: bool
     model_id: str
-    guardrail_enabled: bool
     suggested_questions: list[str]

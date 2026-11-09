@@ -667,7 +667,7 @@ Full replace of `holiday_date` and `name` — same request/response/failure shap
 
 ## Chat
 
-AI assistant (AWS Bedrock). Requires `Authorization: Bearer <access_token>`; operates on
+AI assistant (Anthropic API). Requires `Authorization: Bearer <access_token>`; operates on
 the caller's own tenant schema and user. Design, guardrails and configuration:
 [`CHATBOT.md`](CHATBOT.md).
 
@@ -677,8 +677,7 @@ the caller's own tenant schema and user. Design, guardrails and configuration:
 ```json
 {
   "enabled": true,
-  "model_id": "in.anthropic.claude-haiku-4-5-20251001-v1:0",
-  "guardrail_enabled": true,
+  "model_id": "claude-haiku-4-5",
   "suggested_questions": ["Which stocks fell the most on the latest trading day?"]
 }
 ```

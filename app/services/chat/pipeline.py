@@ -26,8 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.logging import get_logger
-from app.services.chat import bedrock_client
-from app.services.chat.bedrock_client import BedrockError, ModelReply
+from app.services.chat import llm_client
+from app.services.chat.llm_client import LlmError, ModelReply
 from app.services.chat.prompts import ANSWER_SYSTEM, build_planner_system
 from app.services.chat.sql_guard import UnsafeSqlError, validate_and_prepare
 from app.services.chat.sql_runner import (
@@ -111,7 +111,7 @@ async def run_chat(
         ctx = await load_data_context(session, schema_name=user.schema_name, user_id=user.user_id)
         system = build_planner_system(ctx, datetime.now(_IST).date())
         messages = _clean_history(history) + [
-            {"role": "user", "content": [bedrock_client.guarded_text(question)]}
+            {"role": "user", "content": [{"text": question}]}
         ]
 
         plan: dict[str, Any] | None = None
@@ -120,7 +120,7 @@ async def run_chat(
         last_error = ""
 
         for attempt in range(settings.chat_sql_max_retries + 1):
-            reply = await bedrock_client.converse(
+            reply = await llm_client.converse(
                 model_id=settings.chat_model_id,
                 system=system,
                 messages=messages,
@@ -195,11 +195,11 @@ async def run_chat(
         answer_messages = _clean_history(history) + [
             {
                 "role": "user",
-                "content": [bedrock_client.guarded_text(question), {"text": answer_prompt}],
+                "content": [{"text": question}, {"text": answer_prompt}],
             }
         ]
         final: ModelReply | None = None
-        async for ev in bedrock_client.converse_stream(
+        async for ev in llm_client.converse_stream(
             model_id=settings.chat_answer_model_id or settings.chat_model_id,
             system=ANSWER_SYSTEM,
             messages=answer_messages,
@@ -219,7 +219,7 @@ async def run_chat(
         _log(user, question, "sql", display_sql, len(result.rows), in_tokens, out_tokens, ms())
         yield "done", _done("sql", ms(), in_tokens, out_tokens, len(result.rows))
 
-    except BedrockError as exc:
+    except LlmError as exc:
         yield "error", {"message": str(exc)}
     except Exception:  # noqa: BLE001 — never leak internals to the client
         logger.exception("chat_pipeline_failed", user_id=user.user_id)

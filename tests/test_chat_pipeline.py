@@ -6,8 +6,8 @@ import pytest
 
 from app.core.deps import CurrentUser
 from app.exceptions import ChatRateLimitedError
-from app.services.chat import bedrock_client, pipeline, rate_limit
-from app.services.chat.bedrock_client import ModelReply, StreamEvent
+from app.services.chat import llm_client, pipeline, rate_limit
+from app.services.chat.llm_client import ModelReply, StreamEvent
 from app.services.chat.sql_runner import DataContext, QueryResult, SqlExecutionError
 
 # pytest-asyncio runs in strict mode; the sync tests below are unaffected by this mark.
@@ -53,8 +53,8 @@ def script(monkeypatch):
             raise item
         return item
 
-    monkeypatch.setattr(bedrock_client, "converse", fake_converse)
-    monkeypatch.setattr(bedrock_client, "converse_stream", fake_stream)
+    monkeypatch.setattr(llm_client, "converse", fake_converse)
+    monkeypatch.setattr(llm_client, "converse_stream", fake_stream)
     monkeypatch.setattr(pipeline, "load_data_context", fake_ctx)
     monkeypatch.setattr(pipeline, "sandbox", fake_sandbox)
     monkeypatch.setattr(pipeline, "run_query", fake_run)

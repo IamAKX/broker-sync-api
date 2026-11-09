@@ -73,14 +73,14 @@ class Settings(BaseSettings):
     eqldata_password: str = ""
     eqldata_base_url: str = "https://api.equalsolution.net"
 
-    # ── AI chatbot (AWS Bedrock) — see docs/CHATBOT.md ────────────────────
-    # Disabled by default so an environment without Bedrock access still boots;
+    # ── AI chatbot (Anthropic API) — see docs/CHATBOT.md ───────────────────
+    # Disabled by default so an environment without an API key still boots;
     # POST /chat/ask returns a clear 503 until chat_enabled is turned on.
     chat_enabled: bool = False
-    chat_aws_region: str = "ap-south-1"
-    # Any Bedrock model/inference-profile id that supports the Converse API.
-    # Swapping models is a config change only.
-    chat_model_id: str = "apac.amazon.nova-pro-v1:0"
+    # Secret key from console.anthropic.com (env ANTHROPIC_API_KEY). Server-side only.
+    anthropic_api_key: str = ""
+    # Any Anthropic model id. Swapping models is a config change only.
+    chat_model_id: str = "claude-haiku-4-5"
     # Optional separate model for the final answer step (blank = same as above).
     chat_answer_model_id: str = ""
     # SQL generation wants determinism; the written answer can be a bit looser.
@@ -90,13 +90,9 @@ class Settings(BaseSettings):
     chat_top_p: float | None = None
     chat_sql_max_tokens: int = 1200
     chat_answer_max_tokens: int = 1200
-    # Bedrock Guardrail (scripts/bedrock/guardrail.json). Blank id = guardrail off
-    # (the in-prompt scope rules and SQL validator still apply).
-    chat_guardrail_id: str = ""
-    chat_guardrail_version: str = "DRAFT"
-    # Boto client timeouts (seconds) and attempts.
-    chat_bedrock_read_timeout: int = 60
-    chat_bedrock_max_attempts: int = 2
+    # API client timeout (seconds) and automatic retries.
+    chat_llm_timeout: int = 60
+    chat_llm_max_retries: int = 2
     # SQL safety limits for the model-generated query.
     chat_sql_timeout_ms: int = 8000
     chat_sql_max_rows: int = 200
