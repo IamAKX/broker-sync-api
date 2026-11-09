@@ -33,6 +33,8 @@ multi-tenant API.
 |---|---|
 | [`docs/BACKEND_ARCHITECTURE.md`](docs/BACKEND_ARCHITECTURE.md) | Application HLD/LLD: multi-tenancy model, data model, API surface, auth design |
 | [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) | API contract: every endpoint with sample request/response payloads and error codes |
+| [`docs/CHATBOT.md`](docs/CHATBOT.md) | AI chatbot: pipeline, five guardrail layers, data catalog, every `CHAT_*` setting |
+| [`docs/BEDROCK_SETUP.md`](docs/BEDROCK_SETUP.md) | AWS Bedrock one-time setup with the exact `aws` commands run (guardrail, IAM role, model test) |
 | [`docs/AWS_ARCHITECTURE.md`](docs/AWS_ARCHITECTURE.md) | Infrastructure design: dev-phase minimal stack vs. hardened production target, cost breakdowns |
 | [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md) | Config/connection reference and step-by-step deployment runbook with copy-pasteable `aws` CLI commands, from zero to a smoke-tested deployment |
 

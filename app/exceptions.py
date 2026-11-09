@@ -50,6 +50,16 @@ class InvalidDateRangeError(AppError):
     code = "invalid_date_range"
 
 
+class ChatDisabledError(AppError):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "chat_disabled"
+
+
+class ChatRateLimitedError(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "chat_rate_limited"
+
+
 class HolidayNotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "holiday_not_found"

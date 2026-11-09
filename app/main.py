@@ -16,6 +16,7 @@ from app.db.tenant_session import tenant_engine
 from app.exceptions import register_exception_handlers
 from app.routers import (
     auth,
+    chat,
     data,
     formula_variables,
     historic,
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(auth.router)
+    app.include_router(chat.router)
     app.include_router(historic.router)
     app.include_router(data.router)
     app.include_router(holidays.router)

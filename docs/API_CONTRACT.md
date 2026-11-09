@@ -665,6 +665,71 @@ Full replace of `holiday_date` and `name` — same request/response/failure shap
 
 ---
 
+## Chat
+
+AI assistant (AWS Bedrock). Requires `Authorization: Bearer <access_token>`; operates on
+the caller's own tenant schema and user. Design, guardrails and configuration:
+[`CHATBOT.md`](CHATBOT.md).
+
+### `GET /chat/status`
+
+**Success response `200 OK`**
+```json
+{
+  "enabled": true,
+  "model_id": "in.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "guardrail_enabled": true,
+  "suggested_questions": ["Which stocks fell the most on the latest trading day?"]
+}
+```
+
+### `POST /chat/ask`
+
+Answers as **Server-Sent Events** (`Content-Type: text/event-stream`), not a JSON body.
+
+**Request body**
+```json
+{
+  "question": "Which stocks fell the most on the latest trading day?",
+  "history": [
+    { "role": "user", "text": "previous question" },
+    { "role": "assistant", "text": "previous answer" }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `question` | string | 1–4000 chars (truncated server-side to `CHAT_MAX_QUESTION_CHARS`) |
+| `history` | array | Optional prior turns, oldest first, max 40 entries; the server uses the last `CHAT_MAX_HISTORY_TURNS` and stores nothing |
+
+**Success response `200 OK`** — a stream of events, each `event: <name>` + `data: <json>`:
+
+| Event | Data | Meaning |
+|---|---|---|
+| `stage` | `{"stage": "understanding" \| "generating_query" \| "running_query" \| "writing_answer"}` | Pipeline progress (drives the UI animation) |
+| `sql` | `{"sql": "SELECT ..."}` | The validated query that ran |
+| `rows` | `{"columns": [...], "rows": [[...]], "row_count": 3, "truncated": false}` | Result preview (≤ 50 rows) |
+| `token` | `{"text": "..."}` | Answer text, streamed in order |
+| `answer` | `{"text": "..."}` | A complete answer with no query (refusal, general knowledge, clarification, "not available") |
+| `done` | `{"kind": "sql" \| "knowledge" \| "unavailable" \| "clarify" \| "refuse" \| "blocked", "latency_ms", "input_tokens", "output_tokens", "row_count"}` | Terminal success event |
+| `error` | `{"message": "..."}` | Terminal failure (model/DB/validation); message is safe to show users |
+
+Typical SQL answer: `stage`×4 interleaved with `sql`, `rows`, then many `token`, then `done`.
+Typical refusal: `stage(understanding)`, `answer`, `done {"kind": "refuse"}`.
+
+**Failure response `503 Service Unavailable`** — `CHAT_ENABLED` is off
+```json
+{ "detail": "The AI assistant is not enabled for this deployment.", "code": "chat_disabled" }
+```
+
+**Failure response `429 Too Many Requests`** — per-user rate limit
+```json
+{ "detail": "You can ask up to 12 questions per minute. Please wait a few seconds.", "code": "chat_rate_limited" }
+```
+
+---
+
 ## Error Codes
 
 Every domain error response follows `{"detail": "...", "code": "..."}`. Codes map 1:1
@@ -683,6 +748,8 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 | 422 | `invalid_date_range` | `/historic/availability` | `from` is after `to`, or the range exceeds 366 days |
 | 404 | `holiday_not_found` | `/holidays/{id}` (PATCH, DELETE) | No holiday with that id for this tenant |
 | 409 | `duplicate_holiday_date` | `/holidays` (POST), `/holidays/{id}` (PATCH) | Another holiday already exists on the given date |
+| 503 | `chat_disabled` | `/chat/ask` | `CHAT_ENABLED` is false for this deployment |
+| 429 | `chat_rate_limited` | `/chat/ask` | The user exceeded `CHAT_RATE_LIMIT_PER_MINUTE` |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |
 
 **Example domain error response** (`401` from a missing bearer token on any `/historic/*` or `/data/*` call):
