@@ -60,16 +60,18 @@ def _messages(messages: list[dict]) -> list[dict]:
 
 
 def _request(model_id: str, system: str, messages: list[dict], temperature: float, max_tokens: int) -> dict:
-    req: dict[str, Any] = {
+    # Sampling params are not typed arguments in the current SDK; Haiku-class models still
+    # accept them in the request body.
+    body: dict[str, Any] = {"temperature": temperature}
+    if settings.chat_top_p is not None:
+        body["top_p"] = settings.chat_top_p
+    return {
         "model": model_id,
         "system": system,
         "messages": _messages(messages),
-        "temperature": temperature,
         "max_tokens": max_tokens,
+        "extra_body": body,
     }
-    if settings.chat_top_p is not None:
-        req["top_p"] = settings.chat_top_p
-    return req
 
 
 def _friendly(exc: Exception) -> LlmError:
