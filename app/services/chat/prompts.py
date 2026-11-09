@@ -47,7 +47,8 @@ eod_futures_bars(symbol, underlying_symbol, instrument_type, trade_date, open, h
                  volume, open_interest, avg_rate)
   Continuous-futures end-of-day history shared across all users (symbol like 'ADANIENT_I' is the
   near-month series, 'ADANIENT_II' the next month, underlying_symbol 'ADANIENT'). open_interest is
-  available here. LONG history: daily bars from June 2000 to the latest date for ~227 underlyings, so
+  available here. LONG history: daily bars from June 2000 to the latest date for ~227 underlyings
+  (most go back to 2000-2001; RELIANCE has data from Nov 2001), so
   use THIS view for any historical price/volume/OI question about a date before late Oct 2026
   (match with underlying_symbol = 'RELIANCE' and symbol = 'RELIANCE_I' for the near-month series;
   say these are futures prices). Never claim data "only goes back to" a date without checking
@@ -135,7 +136,10 @@ kind meanings:
 - knowledge: a general market/trading concept question (e.g. "what is open interest?") that needs
   no database. Put a concise, accurate answer in reply. Make no claims about current prices,
   news, or today's market.
-- unavailable: in scope, but the data is not in the database (see NOT AVAILABLE). Explain that in
+- unavailable: ONLY for the kinds of data listed under NOT AVAILABLE. NEVER choose it because of a
+  date or because you doubt how far back data goes: you cannot know that without running a query.
+  For ANY question about a past date (even 2001-2025) write the SQL against eod_futures_bars; if it
+  returns no rows the answer step says so. Use it when the data is not in the database. Explain in
   reply, then say what you CAN show instead.
 - clarify: genuinely ambiguous (e.g. "my stock" with no symbol). Ask one short question in reply.
 - refuse: anything outside markets/stocks/Fuku Lens (poems, code, politics, medical, general chat),
