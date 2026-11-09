@@ -83,11 +83,6 @@ class Settings(BaseSettings):
     chat_model_id: str = "claude-haiku-4-5"
     # Optional separate model for the final answer step (blank = same as above).
     chat_answer_model_id: str = ""
-    # SQL generation wants determinism; the written answer can be a bit looser.
-    chat_sql_temperature: float = 0.0
-    chat_answer_temperature: float = 0.2
-    # Unset by default: some newer Claude models reject temperature and top_p together.
-    chat_top_p: float | None = None
     chat_sql_max_tokens: int = 1200
     chat_answer_max_tokens: int = 1200
     # API client timeout (seconds) and automatic retries.

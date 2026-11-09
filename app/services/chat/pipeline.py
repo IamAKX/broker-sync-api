@@ -124,7 +124,6 @@ async def run_chat(
                 model_id=settings.chat_model_id,
                 system=system,
                 messages=messages,
-                temperature=settings.chat_sql_temperature,
                 max_tokens=settings.chat_sql_max_tokens,
             )
             in_tokens += reply.input_tokens
@@ -203,7 +202,6 @@ async def run_chat(
             model_id=settings.chat_answer_model_id or settings.chat_model_id,
             system=ANSWER_SYSTEM,
             messages=answer_messages,
-            temperature=settings.chat_answer_temperature,
             max_tokens=settings.chat_answer_max_tokens,
         ):
             if ev.final is not None:

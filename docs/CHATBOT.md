@@ -85,9 +85,6 @@ All environment variables (see `app/core/config.py`, `.env.example`):
 | `ANTHROPIC_API_KEY` | *(blank)* | Secret API key from console.anthropic.com. Server-side only; never commit it |
 | `CHAT_MODEL_ID` | `claude-haiku-4-5` | Anthropic model id |
 | `CHAT_ANSWER_MODEL_ID` | *(same)* | Optional different model for the answer step |
-| `CHAT_SQL_TEMPERATURE` | `0.0` | Planner/SQL temperature |
-| `CHAT_ANSWER_TEMPERATURE` | `0.2` | Answer temperature |
-| `CHAT_TOP_P` | *(unset)* | Nucleus sampling for both calls. Left unset on purpose: some newer Claude models reject `temperature` and `top_p` together |
 | `CHAT_SQL_MAX_TOKENS` / `CHAT_ANSWER_MAX_TOKENS` | `1200` | Output token caps |
 | `CHAT_LLM_TIMEOUT` / `CHAT_LLM_MAX_RETRIES` | `60` / `2` | Anthropic client timeout (seconds) and automatic retries |
 | `CHAT_SQL_TIMEOUT_MS` | `8000` | Postgres statement timeout for generated SQL |

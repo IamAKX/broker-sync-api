@@ -59,18 +59,14 @@ def _messages(messages: list[dict]) -> list[dict]:
     ]
 
 
-def _request(model_id: str, system: str, messages: list[dict], temperature: float, max_tokens: int) -> dict:
-    # Sampling params are not typed arguments in the current SDK; Haiku-class models still
-    # accept them in the request body.
-    body: dict[str, Any] = {"temperature": temperature}
-    if settings.chat_top_p is not None:
-        body["top_p"] = settings.chat_top_p
+def _request(model_id: str, system: str, messages: list[dict], max_tokens: int) -> dict:
+    # No temperature/top_p: the API rejects them for current models ("Extra inputs are not
+    # permitted"), so determinism comes from the planner prompt and the SQL validator.
     return {
         "model": model_id,
         "system": system,
         "messages": _messages(messages),
         "max_tokens": max_tokens,
-        "extra_body": body,
     }
 
 
@@ -96,22 +92,22 @@ def _reply(msg: Any) -> ModelReply:
 
 
 async def converse(
-    *, model_id: str, system: str, messages: list[dict], temperature: float, max_tokens: int
+    *, model_id: str, system: str, messages: list[dict], max_tokens: int
 ) -> ModelReply:
     try:
-        msg = await _client().messages.create(**_request(model_id, system, messages, temperature, max_tokens))
+        msg = await _client().messages.create(**_request(model_id, system, messages, max_tokens))
         return _reply(msg)
     except anthropic.APIError as exc:
         raise _friendly(exc) from exc
 
 
 async def converse_stream(
-    *, model_id: str, system: str, messages: list[dict], temperature: float, max_tokens: int
+    *, model_id: str, system: str, messages: list[dict], max_tokens: int
 ) -> AsyncIterator[StreamEvent]:
     """Yields StreamEvent(text=delta) as tokens arrive, then one StreamEvent(final=ModelReply)."""
     try:
         async with _client().messages.stream(
-            **_request(model_id, system, messages, temperature, max_tokens)
+            **_request(model_id, system, messages, max_tokens)
         ) as stream:
             async for delta in stream.text_stream:
                 if delta:
