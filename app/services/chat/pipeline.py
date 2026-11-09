@@ -241,14 +241,13 @@ def _done(kind: str, latency_ms: int, in_tokens: int, out_tokens: int, row_count
 
 
 def _log(user, question, kind, sql, rows, in_tokens, out_tokens, latency_ms, error: str = "") -> None:
-    """Audit trail: who asked what, what SQL ran, what it cost. No row data is logged."""
+    """Summary line for the main app log: who asked, outcome, cost. The prompt text and
+    generated SQL go to the dedicated audit logs (audit_log.py), not here. No row data."""
     logger.info(
         "chat_query",
         user_id=user.user_id,
         schema=user.schema_name,
         kind=kind,
-        question=question[:300],
-        sql=sql,
         row_count=rows,
         input_tokens=in_tokens,
         output_tokens=out_tokens,

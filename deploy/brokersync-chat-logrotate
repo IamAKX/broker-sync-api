@@ -1,0 +1,13 @@
+# Install: sudo cp deploy/brokersync-chat-logrotate /etc/logrotate.d/brokersync-chat
+# Daily, keep 30 days, compressed. No copytruncate: the app's WatchedFileHandler
+# reopens the file after rotation, so no log lines are lost or duplicated.
+/home/ec2-user/broker-sync-api/logs/chat/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 ec2-user ec2-user
+    dateext
+}

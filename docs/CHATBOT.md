@@ -97,9 +97,18 @@ All environment variables (see `app/core/config.py`, `.env.example`):
 
 ## Observability
 
-Each question logs one structured `chat_query` line (user, tenant schema, kind, question
-(first 300 chars), SQL, row count, tokens, latency, error). Row *data* is never logged.
+Each question logs one structured `chat_query` line to the main app log (user, tenant schema,
+kind, row count, tokens, latency, error). It carries no prompt text and no SQL. Row *data* is never logged.
 `chat_repair_attempt` marks a self-corrected query — a high rate means the catalog/prompt needs work.
+
+Two dedicated audit logs (`app/services/chat/audit_log.py`) live in `CHAT_LOG_DIR` (default
+`logs/chat/`, i.e. `/home/ec2-user/broker-sync-api/logs/chat/` on EC2):
+
+- `chat_prompts.log` — one JSON line per user prompt (user, schema, question).
+- `chat_queries.log` — one JSON line per generated SQL, with status `executed` / `rejected` / `db_error`.
+
+Rotation: `deploy/brokersync-chat-logrotate` (daily, 30 days, compressed) is installed to
+`/etc/logrotate.d/brokersync-chat`.
 
 ## Extending
 
