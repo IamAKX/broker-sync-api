@@ -35,6 +35,7 @@ multi-tenant API.
 | [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) | API contract: every endpoint with sample request/response payloads and error codes |
 | [`docs/CHATBOT.md`](docs/CHATBOT.md) | AI chatbot: pipeline, five guardrail layers, data catalog, every `CHAT_*` setting |
 | [`docs/BEDROCK_SETUP.md`](docs/BEDROCK_SETUP.md) | AWS Bedrock one-time setup with the exact `aws` commands run (guardrail, IAM role, model test) |
+| [`docs/CHATBOT_NOVA_FALLBACK.md`](docs/CHATBOT_NOVA_FALLBACK.md) | Why the chatbot runs on Amazon Nova Pro (Claude blocked by AWS billing), what was changed in IAM/server, and how to switch back |
 | [`docs/AWS_ARCHITECTURE.md`](docs/AWS_ARCHITECTURE.md) | Infrastructure design: dev-phase minimal stack vs. hardened production target, cost breakdowns |
 | [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md) | Config/connection reference and step-by-step deployment runbook with copy-pasteable `aws` CLI commands, from zero to a smoke-tested deployment |
 
