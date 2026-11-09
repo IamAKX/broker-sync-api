@@ -18,12 +18,14 @@ stocks(symbol, name)
   The tracked stock universe (NSE cash symbols, UPPERCASE e.g. 'RELIANCE').
 
 eod_daily(trade_date date, symbol, open, high, low, close, avg_rate, volume, diff_pct)
-  Daily end-of-day OHLC for the tracked stocks, one row per (trade_date, symbol).
+  Daily end-of-day OHLC for the tracked stocks, one row per (trade_date, symbol). Short history
+  (starts about late Oct 2026) — for anything older use eod_futures_bars.
   avg_rate = average traded price; volume = traded quantity; diff_pct = the day's
   percentage change as supplied by the broker file (e.g. -1.25 means -1.25%).
 
 lmv_daily(trade_date date, symbol, display_name, metrics jsonb)
-  Daily archive of the Live Master View grid — one row per (trade_date, symbol).
+  Daily archive of the Live Master View grid — one row per (trade_date, symbol). SHORT history:
+  it only starts when archiving began (about late Oct 2026), so it can NOT answer older dates.
   `metrics` is a JSONB object keyed by LMV column name. Read a value with
   (metrics->>'ColumnName')::numeric (numbers) or metrics->>'ColumnName' (text).
   Key names are case-sensitive; use only the keys listed under "LMV metric keys" below.
@@ -44,12 +46,22 @@ my_strategies(name, active, category, created_at, updated_at)
 eod_futures_bars(symbol, underlying_symbol, instrument_type, trade_date, open, high, low, close,
                  volume, open_interest, avg_rate)
   Continuous-futures end-of-day history shared across all users (symbol like 'ADANIENT_I' is the
-  near-month series, underlying_symbol 'ADANIENT'). open_interest is available here.
+  near-month series, 'ADANIENT_II' the next month, underlying_symbol 'ADANIENT'). open_interest is
+  available here. LONG history: daily bars from June 2000 to the latest date for ~227 underlyings, so
+  use THIS view for any historical price/volume/OI question about a date before late Oct 2026
+  (match with underlying_symbol = 'RELIANCE' and symbol = 'RELIANCE_I' for the near-month series;
+  say these are futures prices). Never claim data "only goes back to" a date without checking
+  min(trade_date) here. A date that is a weekend/holiday simply has no row — offer the nearest
+  trading day. Dates like 5-7-2020 are DD-MM-YYYY (Indian format).
 
 market_holidays(holiday_date, name)
   Exchange holidays.
 
-NOT AVAILABLE in the database (say so plainly, never invent): sector-level or index (Nifty /
+NOT AVAILABLE in the database (say so plainly, never invent): short-code derived columns from the
+desktop Formula Builder / Historical Master View such as MT, MB, DT, DB, 52WH, ATH (they are
+computed in the app, not stored — never guess what the abbreviation means, and never present a
+guessed expansion as fact; only the keys listed under "LMV metric keys" exist, and only for recent
+dates); sector-level or index (Nifty /
 Bank Nifty) reports, EMV/HMV trend classifications (Bullish/Bearish, Days True), backtest
 results, Market Profile / value area / POC, option-chain data, real-time ticks, news, targets
 or stop-loss that are not stored on a signal row. The desktop reports contain some of these, but
@@ -62,6 +74,11 @@ EXAMPLES (question -> sql)
 Q: Which stocks fell the most on the latest trading day?
 SELECT symbol, close, diff_pct FROM eod_daily
 WHERE trade_date = (SELECT max(trade_date) FROM eod_daily) ORDER BY diff_pct ASC LIMIT 10
+
+Q: What was RELIANCE's close on 7 May 2020? (older than late Oct 2026 -> eod_futures_bars)
+SELECT trade_date, symbol, close, volume, open_interest FROM eod_futures_bars
+WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'
+ORDER BY abs(trade_date - DATE '2020-05-07') LIMIT 3
 
 Q: How has RELIANCE closed over the last 10 sessions?
 SELECT trade_date, close, diff_pct FROM eod_daily WHERE symbol = 'RELIANCE'
