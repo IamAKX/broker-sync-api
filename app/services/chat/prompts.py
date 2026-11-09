@@ -57,16 +57,25 @@ eod_futures_bars(symbol, underlying_symbol, instrument_type, trade_date, open, h
 market_holidays(holiday_date, name)
   Exchange holidays.
 
-NOT AVAILABLE in the database (say so plainly, never invent): short-code derived columns from the
-desktop Formula Builder / Historical Master View such as MT, MB, DT, DB, 52WH, ATH (they are
-computed in the app, not stored — never guess what the abbreviation means, and never present a
-guessed expansion as fact; only the keys listed under "LMV metric keys" exist, and only for recent
-dates); sector-level or index (Nifty /
+NOT AVAILABLE in the database (say so plainly, never invent): sector-level or index (Nifty /
 Bank Nifty) reports, EMV/HMV trend classifications (Bullish/Bearish, Days True), backtest
 results, Market Profile / value area / POC, option-chain data, real-time ticks, news, targets
 or stop-loss that are not stored on a signal row. The desktop reports contain some of these, but
 this chat can only see the database. If a stock's sector is needed, only strategy_signals.sector
 has it.
+"""
+
+_GLOSSARY = """\
+LMV SHORT CODES (these are PRICE levels, not turnover — use these exact meanings, never invent others):
+- DT / DB  = highest / lowest CLOSE of the 5 trading days before the date.
+- WT / WB  = higher / lower of the closes on the last trading day of each of the 3 previous weeks.
+- MT / MB  = Month Top / Month Bottom: higher / lower of the closes on the last trading day of each
+  of the 2 previous calendar months. (NOT "Month Turnover".)
+- PMH / PML / PMC = previous month's high / low / close. PWH / PWL / PWC = previous week's.
+For recent dates read them from lmv_daily.metrics. For a date older than the archive (before about
+late Oct 2026) they are NOT stored, but DT/DB/WT/WB/MT/MB/PM*/PW* can be computed from the daily
+bars in eod_futures_bars (say the result is computed from futures closes, not read from the grid).
+Turnover-type codes (DAY TO, CWTO, PATP, ...) cannot be computed for old dates.
 """
 
 _EXAMPLES = """\
@@ -79,6 +88,15 @@ Q: What was RELIANCE's close on 7 May 2020? (older than late Oct 2026 -> eod_fut
 SELECT trade_date, symbol, close, volume, open_interest FROM eod_futures_bars
 WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'
 ORDER BY abs(trade_date - DATE '2020-05-07') LIMIT 3
+
+Q: What was the MT (Month Top) of RELIANCE on 6 July 2020? (old date -> compute from closes)
+WITH me AS (SELECT trade_date, close FROM eod_futures_bars
+            WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'),
+m AS (SELECT max(trade_date) AS last_day FROM me
+      WHERE trade_date >= date_trunc('month', DATE '2020-07-06') - interval '2 months'
+        AND trade_date <  date_trunc('month', DATE '2020-07-06')
+      GROUP BY date_trunc('month', trade_date))
+SELECT max(close) AS mt, min(close) AS mb FROM me JOIN m ON me.trade_date = m.last_day
 
 Q: How has RELIANCE closed over the last 10 sessions?
 SELECT trade_date, close, diff_pct FROM eod_daily WHERE symbol = 'RELIANCE'
@@ -155,7 +173,7 @@ def build_planner_system(ctx: DataContext, today: date) -> str:
         f"- eod_futures_bars latest trade_date: {_fmt(ctx.futures_latest)}\n"
         f"LMV metric keys (case-sensitive, usable in lmv_daily.metrics): {keys}\n"
     )
-    return "\n".join([PLANNER_RULES, _CATALOG, freshness, _EXAMPLES])
+    return "\n".join([PLANNER_RULES, _CATALOG, _GLOSSARY, freshness, _EXAMPLES])
 
 
 ANSWER_SYSTEM = """\
