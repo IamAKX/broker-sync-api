@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     chat_max_question_chars: int = 1000
     # Per-user questions per minute (per worker process — see docs/CHATBOT.md).
     chat_rate_limit_per_minute: int = 12
+    # Directory for the separate prompt / generated-SQL audit logs.
+    chat_log_dir: str = "logs/chat"
 
     @property
     def is_production(self) -> bool:

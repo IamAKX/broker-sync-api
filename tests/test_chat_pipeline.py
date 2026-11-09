@@ -75,7 +75,7 @@ async def test_sql_happy_path_event_order(script):
     script.queries = [QueryResult(["symbol", "close"], [["RELIANCE", 2900.0]], False)]
     events = await collect()
     names = [e for e, _ in events]
-    assert names == ["stage", "stage", "stage", "sql", "rows", "stage", "token", "token", "done"]
+    assert names == ["stage", "stage", "stage", "rows", "stage", "token", "token", "done"]
     assert [d["stage"] for e, d in events if e == "stage"] == [
         "understanding", "generating_query", "running_query", "writing_answer",
     ]
@@ -150,3 +150,20 @@ def test_rate_limit(monkeypatch):
         rate_limit.check_rate_limit("u")
     rate_limit.check_rate_limit("other")
     rate_limit.reset()
+
+
+def test_audit_logs_are_separate_files(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.core.config import settings
+    from app.services.chat import audit_log
+
+    monkeypatch.setattr(settings, "chat_log_dir", str(tmp_path))
+    monkeypatch.setattr(audit_log, "_loggers", {})
+    u = SimpleNamespace(user_id="u1", schema_name="t1")
+    audit_log.log_prompt(u, "top gainers?")
+    audit_log.log_generated_query(u, "top gainers?", "SELECT 1", "executed")
+    for h in (audit_log._loggers["prompts"].handlers + audit_log._loggers["queries"].handlers):
+        h.flush()
+    assert "top gainers?" in (tmp_path / "chat_prompts.log").read_text()
+    assert "SELECT 1" not in (tmp_path / "chat_prompts.log").read_text()
+    assert "SELECT 1" in (tmp_path / "chat_queries.log").read_text()

@@ -4,7 +4,6 @@ Yields (event_name, payload) tuples that the router relays as Server-Sent
 Events, so the desktop UI can animate each stage as it happens:
 
   stage    {"stage": "understanding"|"generating_query"|"running_query"|"writing_answer"}
-  sql      {"sql": "..."}                      the validated query that ran
   rows     {"columns", "rows", "row_count", "truncated"}   preview for a result table
   token    {"text": "..."}                     answer text, streamed
   answer   {"text": "..."}                     a complete answer (refusals, knowledge, clarify)
@@ -26,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.logging import get_logger
-from app.services.chat import llm_client
+from app.services.chat import audit_log, llm_client
 from app.services.chat.llm_client import LlmError, ModelReply
 from app.services.chat.prompts import ANSWER_SYSTEM, build_planner_system
 from app.services.chat.sql_guard import UnsafeSqlError, validate_and_prepare
@@ -107,6 +106,7 @@ async def run_chat(
         return int((time.monotonic() - started) * 1000)
 
     try:
+        audit_log.log_prompt(user, question)
         yield "stage", {"stage": "understanding"}
         ctx = await load_data_context(session, schema_name=user.schema_name, user_id=user.user_id)
         system = build_planner_system(ctx, datetime.now(_IST).date())
@@ -147,15 +147,22 @@ async def run_chat(
                     prepared = validate_and_prepare(plan.get("sql") or "", max_rows=settings.chat_sql_max_rows)
                 except UnsafeSqlError as exc:
                     last_error = f"Your SQL was rejected: {exc}"
+                    audit_log.log_generated_query(
+                        user, question, str(plan.get("sql") or ""), "rejected", str(exc), attempt
+                    )
                 else:
                     yield "stage", {"stage": "running_query"}
                     try:
                         async with sandbox(session, schema_name=user.schema_name, user_id=user.user_id):
                             result = await run_query(session, prepared.sql, max_rows=settings.chat_sql_max_rows)
                         display_sql = prepared.display_sql
+                        audit_log.log_generated_query(user, question, display_sql, "executed", attempt=attempt)
                         break
                     except SqlExecutionError as exc:
                         last_error = f"The database rejected your SQL: {exc}"
+                        audit_log.log_generated_query(
+                            user, question, prepared.display_sql, "db_error", str(exc), attempt
+                        )
 
             logger.info("chat_repair_attempt", attempt=attempt, error=last_error)
             messages = messages + [
@@ -178,7 +185,6 @@ async def run_chat(
             return
 
         assert result is not None
-        yield "sql", {"sql": display_sql}
         yield "rows", {
             "columns": result.columns,
             "rows": result.rows[:_ROWS_PREVIEW],
