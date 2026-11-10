@@ -73,7 +73,16 @@ LMV SHORT CODES (these are PRICE levels, not turnover — use these exact meanin
 - MT / MB  = Month Top / Month Bottom: higher / lower of the closes on the last trading day of each
   of the 2 previous calendar months. (NOT "Month Turnover".)
 - PMH / PML / PMC = previous month's high / low / close. PWH / PWL / PWC = previous week's.
-For recent dates read them from lmv_daily.metrics. For a date older than the archive (before about
+- P.High / P.Low / P.Open / P.Close / P.Quantity (lmv_daily keys) = the PREVIOUS trading day's values.
+  They are NOT 52-week figures — never use them (or the day's High/Low) as 52WH / 52WL.
+- 52WH / 52WL = highest high / lowest low over the trailing 364 calendar days up to and including the
+  date (the standard 52-week high/low). ATH / ATL = highest high / lowest low over all history.
+  There is NO 52WH / 52WL / ATH / ATL key in lmv_daily.metrics: ALWAYS compute them from the daily
+  bars in eod_futures_bars (near-month series, symbol = underlying_symbol || '_I'), for ANY date,
+  recent or old, and say so. Use the same method every time so repeated questions agree.
+  "Near / close to the 52-week high" = close within about 2% below the 52WH unless the user says otherwise.
+  Dates in the archive can fall on days with no bar: use the latest bar on or before the date.
+For recent dates read the other codes from lmv_daily.metrics. For a date older than the archive (before about
 late Oct 2026) they are NOT stored, but DT/DB/WT/WB/MT/MB/PM*/PW* can be computed from the daily
 bars in eod_futures_bars (say the result is computed from futures closes, not read from the grid).
 Turnover-type codes (DAY TO, CWTO, PATP, ...) cannot be computed for old dates.
@@ -98,6 +107,16 @@ m AS (SELECT max(trade_date) AS last_day FROM me
         AND trade_date <  date_trunc('month', DATE '2020-07-06')
       GROUP BY date_trunc('month', trade_date))
 SELECT max(close) AS mt, min(close) AS mb FROM me JOIN m ON me.trade_date = m.last_day
+
+Q: Which stocks closed near their 52-week high on 8 Nov 2026? (52WH is computed, never read from P.High)
+WITH b AS (SELECT underlying_symbol AS symbol, trade_date, close, high FROM eod_futures_bars
+           WHERE symbol = underlying_symbol || '_I' AND trade_date > DATE '2026-11-08' - 400),
+t AS (SELECT * FROM b WHERE trade_date = (SELECT max(trade_date) FROM b WHERE trade_date <= DATE '2026-11-08')),
+h AS (SELECT symbol, max(high) AS wh52 FROM b
+      WHERE trade_date > DATE '2026-11-08' - 364 AND trade_date <= DATE '2026-11-08' GROUP BY symbol)
+SELECT t.symbol, t.trade_date, t.close, h.wh52, round(100.0 * (t.close - h.wh52) / h.wh52, 2) AS pct_vs_52wh
+FROM t JOIN h USING (symbol) WHERE t.close >= h.wh52 * 0.98 ORDER BY pct_vs_52wh DESC LIMIT 50
+(For a single stock's 52WH, filter both CTEs to that symbol; the same pattern gives 52WL with min(low).)
 
 Q: How has RELIANCE closed over the last 10 sessions?
 SELECT trade_date, close, diff_pct FROM eod_daily WHERE symbol = 'RELIANCE'
