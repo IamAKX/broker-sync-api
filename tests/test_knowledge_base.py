@@ -153,3 +153,11 @@ def test_planner_prompt_has_live_dates_the_glossary_and_only_relevant_extras():
     assert "DAY UF GUP 1" not in p                                       # gap doc not pulled in
     assert "DAY UF GUP 1" in build_planner_system(_ctx(), date(2026, 11, 10), "show unfilled gap up stocks")
     assert "late Oct" not in p
+
+
+def test_answer_prompt_carries_the_glossary_so_codes_are_not_guessed():
+    from app.services.chat.prompts import build_answer_system
+    p = build_answer_system("what is the MT of reliance")
+    assert "Month Top" in p and "NOT \"Month Turnover\"" in p
+    assert "DATA SOURCES" not in p and "EXAMPLES" not in p     # only glossary + rules, not the whole KB
+    assert "never guess" in p

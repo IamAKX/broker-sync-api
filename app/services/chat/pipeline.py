@@ -27,7 +27,7 @@ from app.core.deps import CurrentUser
 from app.core.logging import get_logger
 from app.services.chat import audit_log, llm_client
 from app.services.chat.llm_client import LlmError, ModelReply
-from app.services.chat.prompts import ANSWER_SYSTEM, build_planner_system
+from app.services.chat.prompts import build_answer_system, build_planner_system
 from app.services.chat.sql_guard import UnsafeSqlError, validate_and_prepare
 from app.services.chat.sql_runner import (
     QueryResult,
@@ -209,7 +209,7 @@ async def run_chat(
         final: ModelReply | None = None
         async for ev in llm_client.converse_stream(
             model_id=settings.chat_answer_model_id or settings.chat_model_id,
-            system=ANSWER_SYSTEM,
+            system=build_answer_system(f"{question} {recent_user_text}"),
             messages=answer_messages,
             max_tokens=settings.chat_answer_max_tokens,
         ):
