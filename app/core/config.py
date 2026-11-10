@@ -103,6 +103,10 @@ class Settings(BaseSettings):
     chat_rate_limit_per_minute: int = 12
     # Directory for the separate prompt / generated-SQL audit logs.
     chat_log_dir: str = "logs/chat"
+    # Folder of Markdown knowledge-base files (see knowledge/README.md), loaded at startup.
+    chat_knowledge_dir: str = "knowledge"
+    # Hard cap on knowledge text put in one prompt (on-demand docs are dropped first).
+    chat_knowledge_max_chars: int = 60000
 
     @property
     def is_production(self) -> bool:

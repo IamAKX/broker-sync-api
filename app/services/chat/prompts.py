@@ -1,148 +1,17 @@
 """System prompts for the two model calls (plan/SQL, then answer).
 
-The catalog below is deliberately a curated semantic layer — the model is
-shown the temp views from sql_runner (clean names, units, caveats), never the
-raw EAV/JSONB tables.
+Behaviour (reply format, refusal rules) lives here. *Knowledge* — what each view holds, what each
+short code means, rules about dates, worked example queries — lives as Markdown in ``knowledge/``
+(see knowledge/README.md and app/services/chat/knowledge.py). Facts that change with the data
+(date ranges, metric keys) are built from the database per request, below.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 
+from app.services.chat.knowledge import get_knowledge_base
 from app.services.chat.sql_runner import DataContext
-
-_CATALOG = """\
-DATABASE (PostgreSQL). You may query ONLY these views — nothing else exists:
-
-stocks(symbol, name)
-  The tracked stock universe (NSE cash symbols, UPPERCASE e.g. 'RELIANCE').
-
-eod_daily(trade_date date, symbol, open, high, low, close, avg_rate, volume, diff_pct)
-  Daily end-of-day OHLC for the tracked stocks, one row per (trade_date, symbol). Short history
-  (see DATA FRESHNESS for the earliest date) — for anything older use eod_futures_bars.
-  avg_rate = average traded price; volume = traded quantity; diff_pct = the day's
-  percentage change as supplied by the broker file (e.g. -1.25 means -1.25%).
-
-lmv_daily(trade_date date, symbol, display_name, metrics jsonb)
-  Daily archive of the Live Master View grid — one row per (trade_date, symbol). SHORT history:
-  it only starts when archiving began (see DATA FRESHNESS for the earliest date), so it can NOT
-  answer older dates. Some values are EMPTY STRINGS ('') when a code has no value yet (e.g. CWH/CWL
-  on the first day of a week): always read numbers as NULLIF(metrics->>'Key', '')::numeric.
-  `metrics` is a JSONB object keyed by LMV column name. Read a value with
-  (metrics->>'ColumnName')::numeric (numbers) or metrics->>'ColumnName' (text).
-  Key names are case-sensitive; use only the keys listed under "LMV metric keys" below.
-  This is a once-a-day archive, NOT a real-time tick feed.
-
-strategy_signals(strategy_name, symbol, sector, direction, status, entry_time, entry_price,
-                 exit_price, resolved_at, running_high, running_low, score, event_time,
-                 risk_reward jsonb, metrics jsonb)
-  Alerts fired by the user's own Strategy Notifications. direction is 'BUY' or 'SELL'.
-  status is one of: open, stopped_out, all_targets_achieved, trade_cancelled, intraday_closed.
-  event_time = when it last changed (resolved_at if resolved, else entry_time).
-  Yield % of a closed signal: BUY -> (exit_price-entry_price)/entry_price*100,
-  SELL -> (entry_price-exit_price)/entry_price*100 (only where exit_price is not null).
-
-my_strategies(name, active, category, created_at, updated_at)
-  The names of the user's saved strategies. Their formulas are NOT queryable.
-
-eod_futures_bars(symbol, underlying_symbol, instrument_type, trade_date, open, high, low, close,
-                 volume, open_interest, avg_rate)
-  Continuous-futures end-of-day history shared across all users (symbol like 'ADANIENT_I' is the
-  near-month series, 'ADANIENT_II' the next month, underlying_symbol 'ADANIENT'). open_interest is
-  available here. LONG history: daily bars from June 2000 to the latest date for ~227 underlyings
-  (most go back to 2000-2001; RELIANCE has data from Nov 2001), so
-  use THIS view for any historical price/volume/OI question about a date before the lmv_daily / eod_daily earliest dates in DATA FRESHNESS
-  (match with underlying_symbol = 'RELIANCE' and symbol = 'RELIANCE_I' for the near-month series;
-  say these are futures prices). Never claim data "only goes back to" a date without checking
-  min(trade_date) here. A date that is a weekend/holiday simply has no row — offer the nearest
-  trading day. Dates like 5-7-2020 are DD-MM-YYYY (Indian format).
-
-market_holidays(holiday_date, name)
-  Exchange holidays.
-
-NOT AVAILABLE in the database (say so plainly, never invent): sector-level or index (Nifty /
-Bank Nifty) reports, EMV/HMV trend classifications (Bullish/Bearish, Days True), backtest
-results, Market Profile / value area / POC, option-chain data, real-time ticks, news, targets
-or stop-loss that are not stored on a signal row. The desktop reports contain some of these, but
-this chat can only see the database. If a stock's sector is needed, only strategy_signals.sector
-has it.
-"""
-
-_GLOSSARY = """\
-LMV SHORT CODES (these are PRICE levels, not turnover — use these exact meanings, never invent others):
-- DT / DB  = highest / lowest CLOSE of the 5 trading days before the date.
-- WT / WB  = higher / lower of the closes on the last trading day of each of the 3 previous weeks.
-- MT / MB  = Month Top / Month Bottom: higher / lower of the closes on the last trading day of each
-  of the 2 previous calendar months. (NOT "Month Turnover".)
-- PMH / PML / PMC = previous month's high / low / close. PWH / PWL / PWC = previous week's.
-- P.High / P.Low / P.Open / P.Close / P.Quantity (lmv_daily keys) = the PREVIOUS trading day's values.
-  They are NOT 52-week figures — never use them (or the day's High/Low) as 52WH / 52WL.
-- 52WH / 52WL = highest high / lowest low over the trailing 364 calendar days up to and including the
-  date (the standard 52-week high/low). ATH / ATL = highest high / lowest low over all history.
-  There is NO 52WH / 52WL / ATH / ATL key in lmv_daily.metrics: ALWAYS compute them from the daily
-  bars in eod_futures_bars (near-month series, symbol = underlying_symbol || '_I'), for ANY date,
-  recent or old, and say so. Use the same method every time so repeated questions agree.
-  "Near / close to the 52-week high" = close within about 2% below the 52WH unless the user says otherwise.
-  Dates in the archive can fall on days with no bar: use the latest bar on or before the date.
-For recent dates read the other codes from lmv_daily.metrics. For a date older than the archive (before the lmv_daily earliest date
-in DATA FRESHNESS) they are NOT stored, but DT/DB/WT/WB/MT/MB/PM*/PW* can be computed from the daily
-bars in eod_futures_bars (say the result is computed from futures closes, not read from the grid).
-Turnover-type codes (DAY TO, CWTO, PATP, ...) are only reliable where the archive has them.
-Other lmv_daily keys: OR.High / OR.Low = the day's opening-range high / low; pdhighestcalloi,
-pdhighestputoi, pdsecondhighestcalloi = previous day's highest call OI / highest put OI /
-second-highest call OI (names only; say so if unsure).
-"""
-
-_EXAMPLES = """\
-EXAMPLES (question -> sql)
-Q: Which stocks fell the most on the latest trading day?
-SELECT symbol, close, diff_pct FROM eod_daily
-WHERE trade_date = (SELECT max(trade_date) FROM eod_daily) ORDER BY diff_pct ASC LIMIT 10
-
-Q: What was RELIANCE's close on 7 May 2020? (older than the lmv_daily archive -> eod_futures_bars)
-SELECT trade_date, symbol, close, volume, open_interest FROM eod_futures_bars
-WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'
-ORDER BY abs(trade_date - DATE '2020-05-07') LIMIT 3
-
-Q: What was the MT (Month Top) of RELIANCE on 6 July 2020? (old date -> compute from closes)
-WITH me AS (SELECT trade_date, close FROM eod_futures_bars
-            WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'),
-m AS (SELECT max(trade_date) AS last_day FROM me
-      WHERE trade_date >= date_trunc('month', DATE '2020-07-06') - interval '2 months'
-        AND trade_date <  date_trunc('month', DATE '2020-07-06')
-      GROUP BY date_trunc('month', trade_date))
-SELECT max(close) AS mt, min(close) AS mb FROM me JOIN m ON me.trade_date = m.last_day
-
-Q: Which stocks closed near their 52-week high on 8 Nov 2026? (52WH is computed, never read from P.High)
-WITH b AS (SELECT underlying_symbol AS symbol, trade_date, close, high FROM eod_futures_bars
-           WHERE symbol = underlying_symbol || '_I' AND trade_date > DATE '2026-11-08' - 400),
-t AS (SELECT * FROM b WHERE trade_date = (SELECT max(trade_date) FROM b WHERE trade_date <= DATE '2026-11-08')),
-h AS (SELECT symbol, max(high) AS wh52 FROM b
-      WHERE trade_date > DATE '2026-11-08' - 364 AND trade_date <= DATE '2026-11-08' GROUP BY symbol)
-SELECT t.symbol, t.trade_date, t.close, h.wh52, round(100.0 * (t.close - h.wh52) / h.wh52, 2) AS pct_vs_52wh
-FROM t JOIN h USING (symbol) WHERE t.close >= h.wh52 * 0.98 ORDER BY pct_vs_52wh DESC LIMIT 50
-(For a single stock's 52WH, filter both CTEs to that symbol; the same pattern gives 52WL with min(low).)
-
-Q: How has RELIANCE closed over the last 10 sessions?
-SELECT trade_date, close, diff_pct FROM eod_daily WHERE symbol = 'RELIANCE'
-ORDER BY trade_date DESC LIMIT 10
-
-Q: Which stocks closed above their previous day's high?
-SELECT symbol, close, prev_high FROM (
-  SELECT symbol, trade_date, close, lag(high) OVER (PARTITION BY symbol ORDER BY trade_date) AS prev_high
-  FROM eod_daily) t
-WHERE trade_date = (SELECT max(trade_date) FROM eod_daily) AND close > prev_high
-
-Q: Which of my strategy alerts are still open?
-SELECT strategy_name, symbol, direction, entry_time, entry_price FROM strategy_signals
-WHERE status = 'open' ORDER BY entry_time DESC
-
-Q: What is the win rate of my closed BUY signals by strategy?
-SELECT strategy_name, count(*) AS trades,
-  round(100.0 * count(*) FILTER (WHERE exit_price > entry_price) / count(*), 1) AS win_pct
-FROM strategy_signals WHERE direction = 'BUY' AND status <> 'open' AND exit_price IS NOT NULL
-GROUP BY strategy_name ORDER BY trades DESC
-"""
 
 PLANNER_RULES = """\
 You are the data assistant inside Fuku Lens, a stock-market analytics product. You answer ONLY
@@ -160,7 +29,7 @@ kind meanings:
 - knowledge: a general market/trading concept question (e.g. "what is open interest?") that needs
   no database. Put a concise, accurate answer in reply. Make no claims about current prices,
   news, or today's market.
-- unavailable: ONLY for the kinds of data listed under NOT AVAILABLE. NEVER choose it because of a
+- unavailable: ONLY for the kinds of data listed under DATA RULES as not available. NEVER choose it because of a
   date or because you doubt how far back data goes: you cannot know that without running a query.
   For ANY question about a past date (even 2001-2025) write the SQL against eod_futures_bars; if it
   returns no rows the answer step says so. Use it when the data is not in the database. Explain in
@@ -171,7 +40,7 @@ kind meanings:
   say you only help with markets, stocks and Fuku Lens data, in reply.
 
 SQL rules:
-- One statement, SELECT only, using only the views above, unqualified names. No schema prefixes.
+- One statement, SELECT only, using only the views under DATA SOURCES, unqualified names. No schema prefixes.
 - Match stocks by symbol in UPPERCASE; if the user gives a company name use
   symbol ILIKE '%name%' or name ILIKE '%name%'.
 - "Latest"/"today"/"current" means the latest date present in the data (max(trade_date)), not the
@@ -190,7 +59,12 @@ def _fmt(d: date | datetime | None) -> str:
     return d.isoformat() if d else "none"
 
 
-def build_planner_system(ctx: DataContext, today: date) -> str:
+_DB_PREAMBLE = "DATABASE (PostgreSQL). You may query ONLY the views listed under DATA SOURCES — nothing else exists."
+
+
+def build_planner_system(ctx: DataContext, today: date, question: str = "") -> str:
+    """Planner system prompt: behaviour rules + live data facts + the knowledge-base docs that apply
+    to *question* (all ``always`` docs plus any ``on-demand`` doc a trigger term pulls in)."""
     keys = ", ".join(ctx.lmv_metric_keys) if ctx.lmv_metric_keys else "(none loaded)"
     freshness = (
         "DATA FRESHNESS (what exists right now for this user)\n"
@@ -201,7 +75,9 @@ def build_planner_system(ctx: DataContext, today: date) -> str:
         f"- eod_futures_bars trade_date range: {_fmt(ctx.futures_earliest)} to {_fmt(ctx.futures_latest)}\n"
         f"LMV metric keys (case-sensitive, usable in lmv_daily.metrics): {keys}\n"
     )
-    return "\n".join([PLANNER_RULES, _CATALOG, _GLOSSARY, freshness, _EXAMPLES])
+    kb = get_knowledge_base()
+    knowledge = kb.render(kb.select(question))
+    return "\n\n".join([PLANNER_RULES, _DB_PREAMBLE, freshness, knowledge])
 
 
 ANSWER_SYSTEM = """\

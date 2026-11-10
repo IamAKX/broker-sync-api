@@ -109,7 +109,10 @@ async def run_chat(
         audit_log.log_prompt(user, question)
         yield "stage", {"stage": "understanding"}
         ctx = await load_data_context(session, schema_name=user.schema_name, user_id=user.user_id)
-        system = build_planner_system(ctx, datetime.now(_IST).date())
+        recent_user_text = " ".join(
+            t.get("text", "") for t in history[-(settings.chat_max_history_turns * 2):] if t.get("role") == "user"
+        )
+        system = build_planner_system(ctx, datetime.now(_IST).date(), f"{question} {recent_user_text}")
         messages = _clean_history(history) + [
             {"role": "user", "content": [{"text": question}]}
         ]

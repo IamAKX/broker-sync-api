@@ -95,6 +95,17 @@ All environment variables (see `app/core/config.py`, `.env.example`):
 | `CHAT_MAX_QUESTION_CHARS` | `1000` | Question length cap |
 | `CHAT_RATE_LIMIT_PER_MINUTE` | `12` | Per user, per worker; `0` disables |
 
+## Knowledge base (`knowledge/`)
+
+What the model knows about the data lives as Markdown under `knowledge/` (data sources, rules, glossary
+of short codes, worked example queries), not in code. It is loaded and validated at startup
+(`app/services/chat/knowledge.py`) and assembled per question: `always` docs go in every prompt,
+`on-demand` docs only when a trigger word appears in the question. Add or change a file and restart.
+See `knowledge/README.md` for the file format and how to add things. `tests/test_knowledge_base.py`
+checks the format, that every SQL example passes the SQL guard, and that the documented views match
+the views `sql_runner.py` creates. Behaviour (reply format, refusals) stays in `prompts.py`; facts
+that change with the data (date ranges, metric keys) are read from the database per request.
+
 ## Observability
 
 Each question logs one structured `chat_query` line to the main app log (user, tenant schema,

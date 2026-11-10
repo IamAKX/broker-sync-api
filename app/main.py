@@ -36,6 +36,9 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.chat.knowledge import init_knowledge
+
+    init_knowledge()   # chatbot knowledge base (knowledge/*.md); logs an error rather than crash the API
     yield
     await central_engine.dispose()
     await tenant_engine.dispose()
