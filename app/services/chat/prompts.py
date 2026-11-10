@@ -19,13 +19,15 @@ stocks(symbol, name)
 
 eod_daily(trade_date date, symbol, open, high, low, close, avg_rate, volume, diff_pct)
   Daily end-of-day OHLC for the tracked stocks, one row per (trade_date, symbol). Short history
-  (starts about late Oct 2026) — for anything older use eod_futures_bars.
+  (see DATA FRESHNESS for the earliest date) — for anything older use eod_futures_bars.
   avg_rate = average traded price; volume = traded quantity; diff_pct = the day's
   percentage change as supplied by the broker file (e.g. -1.25 means -1.25%).
 
 lmv_daily(trade_date date, symbol, display_name, metrics jsonb)
   Daily archive of the Live Master View grid — one row per (trade_date, symbol). SHORT history:
-  it only starts when archiving began (about late Oct 2026), so it can NOT answer older dates.
+  it only starts when archiving began (see DATA FRESHNESS for the earliest date), so it can NOT
+  answer older dates. Some values are EMPTY STRINGS ('') when a code has no value yet (e.g. CWH/CWL
+  on the first day of a week): always read numbers as NULLIF(metrics->>'Key', '')::numeric.
   `metrics` is a JSONB object keyed by LMV column name. Read a value with
   (metrics->>'ColumnName')::numeric (numbers) or metrics->>'ColumnName' (text).
   Key names are case-sensitive; use only the keys listed under "LMV metric keys" below.
@@ -49,7 +51,7 @@ eod_futures_bars(symbol, underlying_symbol, instrument_type, trade_date, open, h
   near-month series, 'ADANIENT_II' the next month, underlying_symbol 'ADANIENT'). open_interest is
   available here. LONG history: daily bars from June 2000 to the latest date for ~227 underlyings
   (most go back to 2000-2001; RELIANCE has data from Nov 2001), so
-  use THIS view for any historical price/volume/OI question about a date before late Oct 2026
+  use THIS view for any historical price/volume/OI question about a date before the lmv_daily / eod_daily earliest dates in DATA FRESHNESS
   (match with underlying_symbol = 'RELIANCE' and symbol = 'RELIANCE_I' for the near-month series;
   say these are futures prices). Never claim data "only goes back to" a date without checking
   min(trade_date) here. A date that is a weekend/holiday simply has no row — offer the nearest
@@ -82,10 +84,13 @@ LMV SHORT CODES (these are PRICE levels, not turnover — use these exact meanin
   recent or old, and say so. Use the same method every time so repeated questions agree.
   "Near / close to the 52-week high" = close within about 2% below the 52WH unless the user says otherwise.
   Dates in the archive can fall on days with no bar: use the latest bar on or before the date.
-For recent dates read the other codes from lmv_daily.metrics. For a date older than the archive (before about
-late Oct 2026) they are NOT stored, but DT/DB/WT/WB/MT/MB/PM*/PW* can be computed from the daily
+For recent dates read the other codes from lmv_daily.metrics. For a date older than the archive (before the lmv_daily earliest date
+in DATA FRESHNESS) they are NOT stored, but DT/DB/WT/WB/MT/MB/PM*/PW* can be computed from the daily
 bars in eod_futures_bars (say the result is computed from futures closes, not read from the grid).
-Turnover-type codes (DAY TO, CWTO, PATP, ...) cannot be computed for old dates.
+Turnover-type codes (DAY TO, CWTO, PATP, ...) are only reliable where the archive has them.
+Other lmv_daily keys: OR.High / OR.Low = the day's opening-range high / low; pdhighestcalloi,
+pdhighestputoi, pdsecondhighestcalloi = previous day's highest call OI / highest put OI /
+second-highest call OI (names only; say so if unsure).
 """
 
 _EXAMPLES = """\
@@ -94,7 +99,7 @@ Q: Which stocks fell the most on the latest trading day?
 SELECT symbol, close, diff_pct FROM eod_daily
 WHERE trade_date = (SELECT max(trade_date) FROM eod_daily) ORDER BY diff_pct ASC LIMIT 10
 
-Q: What was RELIANCE's close on 7 May 2020? (older than late Oct 2026 -> eod_futures_bars)
+Q: What was RELIANCE's close on 7 May 2020? (older than the lmv_daily archive -> eod_futures_bars)
 SELECT trade_date, symbol, close, volume, open_interest FROM eod_futures_bars
 WHERE underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'
 ORDER BY abs(trade_date - DATE '2020-05-07') LIMIT 3
@@ -190,10 +195,10 @@ def build_planner_system(ctx: DataContext, today: date) -> str:
     freshness = (
         "DATA FRESHNESS (what exists right now for this user)\n"
         f"- Calendar date today: {today.isoformat()}\n"
-        f"- eod_daily latest trade_date: {_fmt(ctx.eod_latest)}\n"
-        f"- lmv_daily latest trade_date: {_fmt(ctx.lmv_latest)}\n"
+        f"- eod_daily trade_date range: {_fmt(ctx.eod_earliest)} to {_fmt(ctx.eod_latest)}\n"
+        f"- lmv_daily trade_date range: {_fmt(ctx.lmv_earliest)} to {_fmt(ctx.lmv_latest)}\n"
         f"- strategy_signals latest event_time: {_fmt(ctx.signals_latest)}\n"
-        f"- eod_futures_bars latest trade_date: {_fmt(ctx.futures_latest)}\n"
+        f"- eod_futures_bars trade_date range: {_fmt(ctx.futures_earliest)} to {_fmt(ctx.futures_latest)}\n"
         f"LMV metric keys (case-sensitive, usable in lmv_daily.metrics): {keys}\n"
     )
     return "\n".join([PLANNER_RULES, _CATALOG, _GLOSSARY, freshness, _EXAMPLES])

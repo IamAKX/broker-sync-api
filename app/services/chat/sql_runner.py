@@ -56,6 +56,10 @@ class DataContext:
     lmv_metric_keys: list[str]
     signals_latest: datetime | None
     futures_latest: date | None
+    # Earliest dates, so the model states real coverage instead of guessing it.
+    eod_earliest: date | None = None
+    lmv_earliest: date | None = None
+    futures_earliest: date | None = None
 
 
 def _view_ddl(schema: str, user_id: uuid.UUID) -> list[str]:
@@ -155,7 +159,9 @@ async def load_data_context(session: AsyncSession, *, schema_name: str, user_id:
     await session.rollback()
     try:
         eod = (await session.execute(text(f'SELECT max(trade_date) FROM {s}."HistoricalStockValue"'))).scalar()
+        eod_min = (await session.execute(text(f'SELECT min(trade_date) FROM {s}."HistoricalStockValue"'))).scalar()
         lmv = (await session.execute(text(f'SELECT max(trade_date) FROM {s}."LmvDailySnapshotWide"'))).scalar()
+        lmv_min = (await session.execute(text(f'SELECT min(trade_date) FROM {s}."LmvDailySnapshotWide"'))).scalar()
         keys: list[str] = []
         if lmv is not None:
             rows = await session.execute(
@@ -172,10 +178,12 @@ async def load_data_context(session: AsyncSession, *, schema_name: str, user_id:
             )
         ).scalar()
         fut = (await session.execute(text('SELECT max(trade_date) FROM public."EodBar"'))).scalar()
+        fut_min = (await session.execute(text('SELECT min(trade_date) FROM public."EodBar"'))).scalar()
     except DBAPIError as exc:
         raise SqlExecutionError(str(getattr(exc, "orig", exc)).splitlines()[0]) from exc
     finally:
         await session.rollback()
-    ctx = DataContext(eod_latest=eod, lmv_latest=lmv, lmv_metric_keys=keys, signals_latest=sig, futures_latest=fut)
+    ctx = DataContext(eod_latest=eod, lmv_latest=lmv, lmv_metric_keys=keys, signals_latest=sig, futures_latest=fut,
+                      eod_earliest=eod_min, lmv_earliest=lmv_min, futures_earliest=fut_min)
     cache.set(key, ctx, _CONTEXT_TTL_SECONDS)
     return ctx
