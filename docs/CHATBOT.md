@@ -12,12 +12,30 @@ is an Anthropic API key (`ANTHROPIC_API_KEY`); the HTTP contract is in
 | EOD OHLC/volume/% change for tracked stocks (`eod_daily`) | Index (Nifty/Bank Nifty) or sector-level reports |
 | The LMV daily archive, any LMV column (`lmv_daily`) | EMV/HMV trend classifications, Days True |
 | The user's strategy alerts & win rates (`strategy_signals`) | Backtest results, Market Profile, option chain |
-| Futures EOD incl. open interest (`eod_futures_bars`) | Real-time ticks, news |
+| Futures EOD incl. open interest (`eod_futures_bars`) | Tick-by-tick history, news |
+| The **live market right now**, from the user's running Live Master View (`lmv_live`) | Live answers when LMV is not running (it says what to switch on) |
 | Holidays, strategy names | Strategy *formulas* |
 | General market concepts ("what is open interest?") from model knowledge | Personalised buy/sell advice (it describes the data + a disclaimer) |
 
-"Live"/"right now" questions in the answer bank are answered from the most recent archived
-data and the answer says so with its date — the chat has no tick feed.
+### Live questions
+
+The desktop sends its Live Master View with every question (`live` in the `/chat/ask` body): the
+grid as displayed, or `running: false` plus a `reason` (which Data Import files are missing, Run
+Watcher not clicked, window closed). The server stores none of it.
+
+- **Running**: the rows are loaded into a per-request TEMP table `lmv_live(symbol, display_name,
+  sector, metrics jsonb)` inside the sandbox transaction (dropped on rollback). The planner prompt
+  gets a `LIVE MARKET DATA: RUNNING … as of <time>` block with the live metric keys and routes
+  "now / live / current / today so far" questions to it. The answer step is told the result is
+  live and leads with "Live as of <time>", passing on any feed warning. `done.kind` is `live`.
+- **Not running**: the planner returns kind `live_off` and the user gets a fixed, server-written
+  message built from the desktop's `reason` (`pipeline.live_off_message`), never a guess from
+  archived data. A query that references `lmv_live` while it is empty is turned into `live_off`
+  too. `done.kind` is `live_off`.
+- **No `live` block** (older desktop builds): the previous behaviour is kept — a live question is
+  answered from the most recent archived data with a note saying so. The prompt says `ARCHIVE
+  ONLY`, and if the model still declines or reaches for `lmv_live`, one repair turn steers it to
+  the archive.
 
 ## Pipeline (`app/services/chat/pipeline.py`)
 
@@ -70,6 +88,7 @@ test.
 | `stocks` | tenant `Stock` | tenant |
 | `eod_daily` | tenant `HistoricalStockValue` pivoted (Open/High/Low/Close/AvgRate/Quantity/DiffPcnt) | tenant |
 | `lmv_daily` | tenant `LmvDailySnapshotWide` (`metrics` JSONB) | tenant |
+| `lmv_live` | TEMP table filled from the request's `live` block (the caller's own LMV grid) | **this request only** |
 | `strategy_signals` | tenant `StrategySignal` | **user** |
 | `my_strategies` | tenant `SavedStrategy` (no formulas) | **user** |
 | `eod_futures_bars` | `public.EodBar` ⨝ `Instrument` | shared market data |
@@ -133,5 +152,9 @@ Rotation: `deploy/brokersync-chat-logrotate` (daily, 30 days, compressed) is ins
 
 `tests/test_chat_sql_guard.py` (28 attack/validity cases), `tests/test_chat_pipeline.py`
 (pipeline with a fake LLM client: happy path, refusal, model-refusal block, repair loop, history
-sanitising, rate limit). The sandbox was additionally verified against a real Postgres
-(views, read-only, timeout, rollback). Not covered by automated tests: live Anthropic API calls.
+sanitising, rate limit, live questions: running / not running / model reaching for an empty
+`lmv_live` / archive questions unaffected), `tests/test_chat_router.py` (the `live` block is parsed,
+malformed rows skipped, rows dropped when not running). The sandbox was additionally verified against
+a real Postgres (views, read-only, timeout, rollback; `lmv_live` create + JSONB insert + the example
+queries under READ ONLY, gone after rollback). Not covered by automated tests: live Anthropic API
+calls — including whether the model routes a given live question to `lmv_live`.

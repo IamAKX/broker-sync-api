@@ -693,7 +693,14 @@ Answers as **Server-Sent Events** (`Content-Type: text/event-stream`), not a JSO
   "history": [
     { "role": "user", "text": "previous question" },
     { "role": "assistant", "text": "previous answer" }
-  ]
+  ],
+  "live": {
+    "running": true,
+    "as_of": "2026-11-11 10:32:05",
+    "warning": "",
+    "columns": ["Current", "% Change", "DT"],
+    "rows": [["RELIANCE", "RELIANCE", "Energy", 2945.5, 1.2, 2990.0]]
+  }
 }
 ```
 
@@ -701,6 +708,13 @@ Answers as **Server-Sent Events** (`Content-Type: text/event-stream`), not a JSO
 |---|---|---|
 | `question` | string | 1–4000 chars (truncated server-side to `CHAT_MAX_QUESTION_CHARS`) |
 | `history` | array | Optional prior turns, oldest first, max 40 entries; the server uses the last `CHAT_MAX_HISTORY_TURNS` and stores nothing |
+| `live` | object | Optional. The desktop's Live Master View at question time; omit it and live questions are answered from archived data, as before. Not stored |
+| `live.running` | bool | `false` when LMV isn't running with data; then send `reason` and no rows |
+| `live.reason` | string | ≤ 600 chars, shown to the user when a live question can't be answered (e.g. which files are not loaded) |
+| `live.warning` | string | ≤ 600 chars, e.g. the live feed is stale; passed on in live answers |
+| `live.as_of` | string | Desktop clock time of the grid, `YYYY-MM-DD HH:MM:SS` |
+| `live.columns` | string[] | LMV column names, ≤ 600 |
+| `live.rows` | array[] | ≤ 1500 rows, each `[symbol, display_name, sector, ...one value per column]`; `null` = empty cell. Rows without a symbol are skipped |
 
 **Success response `200 OK`** — a stream of events, each `event: <name>` + `data: <json>`:
 
@@ -711,7 +725,7 @@ Answers as **Server-Sent Events** (`Content-Type: text/event-stream`), not a JSO
 | `rows` | `{"columns": [...], "rows": [[...]], "row_count": 3, "truncated": false}` | Result preview (≤ 50 rows) |
 | `token` | `{"text": "..."}` | Answer text, streamed in order |
 | `answer` | `{"text": "..."}` | A complete answer with no query (refusal, general knowledge, clarification, "not available") |
-| `done` | `{"kind": "sql" \| "knowledge" \| "unavailable" \| "clarify" \| "refuse" \| "blocked", "latency_ms", "input_tokens", "output_tokens", "row_count"}` | Terminal success event |
+| `done` | `{"kind": "sql" \| "live" \| "live_off" \| "knowledge" \| "unavailable" \| "clarify" \| "refuse" \| "blocked", "latency_ms", "input_tokens", "output_tokens", "row_count"}` | Terminal success event |
 | `error` | `{"message": "..."}` | Terminal failure (model/DB/validation); message is safe to show users |
 
 Typical SQL answer: `stage`×4 interleaved with `sql`, `rows`, then many `token`, then `done`.

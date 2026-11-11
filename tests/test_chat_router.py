@@ -49,8 +49,9 @@ def test_ask_streams_sse_events(client, monkeypatch):
     monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
     seen = {}
 
-    async def fake_run(session, user, question, history):
+    async def fake_run(session, user, question, history, live=None):
         seen["args"] = (user.user_id, question, history)
+        seen["live"] = live
         yield "stage", {"stage": "understanding"}
         yield "token", {"text": "héllo"}
         yield "done", {"kind": "sql"}
@@ -67,6 +68,35 @@ def test_ask_streams_sse_events(client, monkeypatch):
     assert 'event: token\ndata: {"text": "h\\u00e9llo"}\n\n' in r.text
     assert r.text.rstrip().endswith('"kind": "sql"}')
     assert seen["args"] == (USER.user_id, "q", [{"role": "user", "text": "a"}])
+    assert seen["live"] is None                                # older clients send no live block
+
+
+def test_ask_passes_the_live_lmv_snapshot_through(client, monkeypatch):
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    seen = {}
+
+    async def fake_run(session, user, question, history, live=None):
+        seen.setdefault("live", []).append(live)
+        yield "done", {"kind": "live"}
+
+    monkeypatch.setattr(chat_router, "run_chat", fake_run)
+    row = {"symbol": "TCS", "display_name": "TCS", "sector": "IT", "metrics": {"Current": 3500.5, "% Change": -1.2}}
+    r = client.post("/chat/ask", json={"question": "q", "live": {
+        "running": True, "as_of": "2026-11-11 10:32:05", "warning": "feed stale",
+        "columns": ["Current", "% Change", "CWH"],
+        "rows": [["TCS", "TCS", "IT", 3500.5, -1.2, None], ["", "bad row", None, 1, 2, 3], ["short"]]}})
+    assert r.status_code == 200
+    live = seen["live"][0]
+    assert live.usable and live.as_of == "2026-11-11 10:32:05" and live.warning == "feed stale"
+    assert live.rows == (row,) and live.metric_keys() == ["% Change", "Current"]
+
+    # Not running: the reason is kept, any rows sent by mistake are dropped.
+    r = client.post("/chat/ask", json={"question": "q", "live": {
+        "running": False, "reason": "Live Master View is not running.",
+        "columns": ["Current"], "rows": [["TCS", "TCS", "IT", 1]]}})
+    assert r.status_code == 200
+    live = seen["live"][1]
+    assert not live.usable and live.rows == () and live.reason == "Live Master View is not running."
 
 
 def test_ask_rate_limited(client, monkeypatch):

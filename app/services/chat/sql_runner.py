@@ -6,6 +6,9 @@ Isolation model (defence in depth, on top of sql_guard):
     schema — taken from the verified JWT, never from the client — and, for
     per-user data (signals, strategies), carry a hard-coded `user_id = <uuid>`
     filter. Nothing else is reachable by name.
+  * `lmv_live` is a TEMP table filled, per request, with the Live Master View rows the
+    caller's own desktop sent along with the question (empty when LMV isn't running).
+    It lives only inside this transaction (ON COMMIT DROP + rollback).
   * After the views exist the transaction is switched to READ ONLY, a
     statement timeout is applied, and the whole thing is rolled back at the
     end, so the views vanish and nothing can ever be written.
@@ -13,6 +16,7 @@ Isolation model (defence in depth, on top of sql_guard):
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections.abc import AsyncIterator
@@ -60,6 +64,33 @@ class DataContext:
     eod_earliest: date | None = None
     lmv_earliest: date | None = None
     futures_earliest: date | None = None
+
+
+@dataclass(frozen=True)
+class LiveSnapshot:
+    """The caller's Live Master View at question time (see schemas.chat.ChatLiveLmv)."""
+
+    running: bool
+    reason: str = ""
+    warning: str = ""
+    as_of: str = ""
+    rows: tuple[dict[str, Any], ...] = ()   # {"symbol", "display_name", "sector", "metrics"}
+
+    @property
+    def usable(self) -> bool:
+        return self.running and bool(self.rows)
+
+    def metric_keys(self) -> list[str]:
+        keys: set[str] = set()
+        for row in self.rows:
+            keys.update(row.get("metrics") or {})
+        return sorted(keys)
+
+
+_LIVE_DDL = "CREATE TEMP TABLE lmv_live (symbol text, display_name text, sector text, metrics jsonb) ON COMMIT DROP"
+_LIVE_INSERT = """INSERT INTO lmv_live (symbol, display_name, sector, metrics)
+    SELECT e->>'symbol', e->>'display_name', e->>'sector', COALESCE(e->'metrics', '{}'::jsonb)
+    FROM jsonb_array_elements(CAST(:payload AS jsonb)) AS e"""
 
 
 def _view_ddl(schema: str, user_id: uuid.UUID) -> list[str]:
@@ -116,7 +147,9 @@ def _jsonable(value: Any) -> Any:
 
 
 @asynccontextmanager
-async def sandbox(session: AsyncSession, *, schema_name: str, user_id: str) -> AsyncIterator[AsyncSession]:
+async def sandbox(
+    session: AsyncSession, *, schema_name: str, user_id: str, live: LiveSnapshot | None = None
+) -> AsyncIterator[AsyncSession]:
     if not _SCHEMA_RE.match(schema_name):
         raise SqlExecutionError("Invalid tenant schema.")
     uid = uuid.UUID(user_id)
@@ -124,6 +157,13 @@ async def sandbox(session: AsyncSession, *, schema_name: str, user_id: str) -> A
     try:
         for ddl in _view_ddl(schema_name, uid):
             await session.execute(text(ddl))
+        # Always present, so a query against it never fails on a missing relation;
+        # it simply has no rows unless the desktop sent a running LMV.
+        await session.execute(text(_LIVE_DDL))
+        if live is not None and live.usable:
+            await session.execute(
+                text(_LIVE_INSERT), {"payload": json.dumps(list(live.rows), default=str, allow_nan=False)}
+            )
         await session.execute(text(f"SET LOCAL statement_timeout = {int(settings.chat_sql_timeout_ms)}"))
         await session.execute(text("SET LOCAL transaction_read_only = on"))
         yield session

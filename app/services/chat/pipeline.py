@@ -30,6 +30,7 @@ from app.services.chat.llm_client import LlmError, ModelReply
 from app.services.chat.prompts import build_answer_system, build_planner_system
 from app.services.chat.sql_guard import UnsafeSqlError, validate_and_prepare
 from app.services.chat.sql_runner import (
+    LiveSnapshot,
     QueryResult,
     SqlExecutionError,
     load_data_context,
@@ -74,7 +75,7 @@ def _parse_plan(raw: str) -> dict[str, Any]:
     if start == -1 or end <= start:
         raise ValueError("no JSON object in model reply")
     plan = json.loads(raw[start : end + 1])
-    if plan.get("kind") not in {"sql", "knowledge", "unavailable", "refuse", "clarify"}:
+    if plan.get("kind") not in {"sql", "knowledge", "unavailable", "live_off", "refuse", "clarify"}:
         raise ValueError("unknown plan kind")
     return plan
 
@@ -93,11 +94,40 @@ def _result_for_model(result: QueryResult) -> str:
     return text + ("\nNOTE: " + " ".join(notes) if notes else "")
 
 
+_ARCHIVE_INSTEAD = (
+    "Live data cannot be used for this request. Answer the same question from the most recent "
+    "archived data instead (eod_daily or lmv_daily at max(trade_date)), as kind sql. "
+    "Return a corrected JSON reply."
+)
+
+
+def _uses_live(sql: str) -> bool:
+    return "lmv_live" in sql.lower()
+
+
+def live_off_message(live: LiveSnapshot | None) -> str:
+    """What the user is told when they ask a live question and LMV can't answer it.
+    Fixed wording (not model-written) so the instruction is always exact."""
+    if live is None:   # an older desktop build that cannot send live data at all
+        return (
+            "I can't answer that from live data: this version of the app doesn't send the Live Master "
+            "View to me. Update Fuku Lens to ask live-market questions. I can still answer from the last "
+            "saved data — for example, ask for the latest close."
+        )
+    reason = live.reason.strip() or "The Live Master View is not running in the desktop app."
+    return (
+        f"I can't answer that from live data right now. {reason}\n\n"
+        "Once the Live Master View is running, ask again and I'll answer from the live grid. "
+        "In the meantime I can answer from the last saved data — for example, ask for the latest close."
+    )
+
+
 async def run_chat(
     session: AsyncSession,
     user: CurrentUser,
     question: str,
     history: list[dict[str, str]],
+    live: LiveSnapshot | None = None,
 ) -> AsyncIterator[Event]:
     started = time.monotonic()
     in_tokens = out_tokens = 0
@@ -112,7 +142,8 @@ async def run_chat(
         recent_user_text = " ".join(
             t.get("text", "") for t in history[-(settings.chat_max_history_turns * 2):] if t.get("role") == "user"
         )
-        system = build_planner_system(ctx, datetime.now(_IST).date(), f"{question} {recent_user_text}")
+        system = build_planner_system(ctx, datetime.now(_IST).date(), f"{question} {recent_user_text}", live)
+        live_usable = live is not None and live.usable
         messages = _clean_history(history) + [
             {"role": "user", "content": [{"text": question}]}
         ]
@@ -143,6 +174,20 @@ async def run_chat(
                 last_error = "Reply with a single valid JSON object as specified."
                 plan = None
             else:
+                wants_live = plan["kind"] == "live_off" or (
+                    plan["kind"] == "sql" and _uses_live(plan.get("sql") or "")
+                )
+                if live is None and wants_live and attempt < settings.chat_sql_max_retries:
+                    # An older desktop build (no live block): keep its pre-live behaviour and
+                    # answer from the archive instead of telling the user about a feature it lacks.
+                    messages = messages + [
+                        {"role": "assistant", "content": [{"text": reply.text or "{}"}]},
+                        {"role": "user", "content": [{"text": _ARCHIVE_INSTEAD}]},
+                    ]
+                    plan = None
+                    continue
+                if plan["kind"] == "sql" and _uses_live(plan.get("sql") or "") and not live_usable:
+                    plan = {"kind": "live_off"}   # the model reached for live data that isn't there
                 if plan["kind"] != "sql":
                     break
                 yield "stage", {"stage": "generating_query"}
@@ -156,7 +201,9 @@ async def run_chat(
                 else:
                     yield "stage", {"stage": "running_query"}
                     try:
-                        async with sandbox(session, schema_name=user.schema_name, user_id=user.user_id):
+                        async with sandbox(
+                            session, schema_name=user.schema_name, user_id=user.user_id, live=live
+                        ):
                             result = await run_query(session, prepared.sql, max_rows=settings.chat_sql_max_rows)
                         display_sql = prepared.display_sql
                         audit_log.log_generated_query(user, question, display_sql, "executed", attempt=attempt)
@@ -181,6 +228,12 @@ async def run_chat(
             _log(user, question, "failed", None, 0, in_tokens, out_tokens, ms(), last_error)
             return
 
+        if plan["kind"] == "live_off":
+            yield "answer", {"text": live_off_message(live)}
+            _log(user, question, "live_off", None, 0, in_tokens, out_tokens, ms())
+            yield "done", _done("live_off", ms(), in_tokens, out_tokens, 0)
+            return
+
         if plan["kind"] != "sql":
             yield "answer", {"text": (plan.get("reply") or _BLOCKED_FALLBACK).strip()}
             _log(user, question, plan["kind"], None, 0, in_tokens, out_tokens, ms())
@@ -196,8 +249,16 @@ async def run_chat(
         }
 
         yield "stage", {"stage": "writing_answer"}
+        used_live = live is not None and _uses_live(display_sql)
+        live_note = ""
+        if used_live:
+            live_note = (
+                f"This result is LIVE: it comes from the user's running Live Master View as of {live.as_of or 'just now'}. "
+                + (f"Feed warning to pass on: {live.warning} " if live.warning else "")
+                + "\n\n"
+            )
         answer_prompt = (
-            f"SQL that was run:\n{display_sql}\n\nRESULT (JSON):\n{_result_for_model(result)}\n\n"
+            f"SQL that was run:\n{display_sql}\n\nRESULT (JSON):\n{_result_for_model(result)}\n\n{live_note}"
             "Write the reply to the user's question using only this result."
         )
         answer_messages = _clean_history(history) + [
@@ -223,8 +284,9 @@ async def run_chat(
             if final.blocked:
                 yield "answer", {"text": _BLOCKED_FALLBACK}
 
-        _log(user, question, "sql", display_sql, len(result.rows), in_tokens, out_tokens, ms())
-        yield "done", _done("sql", ms(), in_tokens, out_tokens, len(result.rows))
+        kind = "live" if used_live else "sql"
+        _log(user, question, kind, display_sql, len(result.rows), in_tokens, out_tokens, ms())
+        yield "done", _done(kind, ms(), in_tokens, out_tokens, len(result.rows))
 
     except LlmError as exc:
         yield "error", {"message": str(exc)}

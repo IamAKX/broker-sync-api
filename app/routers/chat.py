@@ -11,6 +11,7 @@ from app.exceptions import ChatDisabledError
 from app.schemas.chat import ChatAskRequest, ChatStatusOut
 from app.services.chat.pipeline import run_chat
 from app.services.chat.rate_limit import check_rate_limit
+from app.services.chat.sql_runner import LiveSnapshot
 from app.services.chat.suggestions import SUGGESTED_QUESTIONS
 from app.services.provisioning_service import ensure_tenant_schema_tables
 
@@ -43,12 +44,21 @@ async def chat_ask_route(
     check_rate_limit(user.user_id)
     question = payload.question.strip()[: settings.chat_max_question_chars]
     history = [t.model_dump() for t in payload.history]
+    live = None
+    if payload.live is not None:
+        live = LiveSnapshot(
+            running=payload.live.running,
+            reason=payload.live.reason,
+            warning=payload.live.warning,
+            as_of=payload.live.as_of,
+            rows=payload.live.row_dicts() if payload.live.running else (),
+        )
 
     async def stream() -> AsyncIterator[str]:
         sessionmaker = build_tenant_sessionmaker(user.schema_name)
         async with sessionmaker() as session:
             await ensure_tenant_schema_tables(session, user.schema_name)
-            async for event, data in run_chat(session, user, question, history):
+            async for event, data in run_chat(session, user, question, history, live):
                 yield _sse(event, data)
 
     return StreamingResponse(

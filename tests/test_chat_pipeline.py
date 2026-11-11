@@ -8,7 +8,7 @@ from app.core.deps import CurrentUser
 from app.exceptions import ChatRateLimitedError
 from app.services.chat import llm_client, pipeline, rate_limit
 from app.services.chat.llm_client import ModelReply, StreamEvent
-from app.services.chat.sql_runner import DataContext, QueryResult, SqlExecutionError
+from app.services.chat.sql_runner import DataContext, LiveSnapshot, QueryResult, SqlExecutionError
 
 # pytest-asyncio runs in strict mode; the sync tests below are unaffected by this mark.
 async_test = pytest.mark.asyncio
@@ -23,19 +23,25 @@ class Script:
     answer: list[str]
     planner_calls: int = 0
     seen_messages: list = None
+    seen_systems: list = None
+    answer_messages: list = None
+    sandbox_live: list = None
 
 
 @pytest.fixture
 def script(monkeypatch):
-    s = Script(planner=[], queries=[], answer=["Reliance ", "closed at 2,900."], seen_messages=[])
+    s = Script(planner=[], queries=[], answer=["Reliance ", "closed at 2,900."], seen_messages=[],
+               seen_systems=[], answer_messages=[], sandbox_live=[])
 
     async def fake_converse(**kw):
         s.seen_messages.append(kw["messages"])
+        s.seen_systems.append(kw["system"])
         reply = s.planner[s.planner_calls]
         s.planner_calls += 1
         return reply
 
     async def fake_stream(**kw):
+        s.answer_messages.append(kw["messages"])
         for t in s.answer:
             yield StreamEvent(text=t)
         yield StreamEvent(final=ModelReply(text="".join(s.answer), input_tokens=5, output_tokens=7))
@@ -45,6 +51,7 @@ def script(monkeypatch):
 
     @asynccontextmanager
     async def fake_sandbox(session, **kw):
+        s.sandbox_live.append(kw.get("live"))
         yield session
 
     async def fake_run(session, sql, max_rows):
@@ -65,8 +72,15 @@ def plan(kind, sql=None, reply=None, **kw):
     return ModelReply(text=json.dumps({"kind": kind, "sql": sql, "reply": reply}), input_tokens=10, output_tokens=3, **kw)
 
 
-async def collect(question="q", history=()):
-    return [ev async for ev in pipeline.run_chat(None, USER, question, list(history))]
+async def collect(question="q", history=(), live=None):
+    return [ev async for ev in pipeline.run_chat(None, USER, question, list(history), live)]
+
+
+LIVE = LiveSnapshot(
+    running=True, as_of="2026-11-11 10:32:05",
+    rows=({"symbol": "TCS", "display_name": "TCS", "sector": "IT", "metrics": {"Current": 3500.5, "% Change": -1.2}},),
+)
+LIVE_OFF = LiveSnapshot(running=False, reason="Live Master View is not running. Open Data Import and click Run Watcher.")
 
 
 @async_test
@@ -81,6 +95,75 @@ async def test_sql_happy_path_event_order(script):
     ]
     done = events[-1][1]
     assert done["kind"] == "sql" and done["row_count"] == 1 and done["input_tokens"] == 15
+
+
+@async_test
+async def test_live_question_is_answered_from_the_running_lmv(script):
+    script.planner = [plan("sql", "SELECT symbol, metrics->>'Current' AS current FROM lmv_live LIMIT 5")]
+    script.queries = [QueryResult(["symbol", "current"], [["TCS", "3500.5"]], False)]
+    events = await collect("what is TCS trading at now?", live=LIVE)
+    assert events[-1][0] == "done" and events[-1][1]["kind"] == "live"
+    system = script.seen_systems[0]
+    assert "LIVE MARKET DATA: RUNNING" in system and "as of 2026-11-11 10:32:05" in system
+    assert "% Change, Current" in system                      # the live keys the model may use
+    assert script.sandbox_live == [LIVE]                      # the snapshot reaches the sandbox
+    answer_prompt = script.answer_messages[0][-1]["content"][1]["text"]
+    assert "This result is LIVE" in answer_prompt and "10:32:05" in answer_prompt
+
+
+@async_test
+async def test_live_question_without_running_lmv_gets_the_fixed_instruction(script):
+    script.planner = [plan("live_off")]
+    events = await collect("what is TCS trading at now?", live=LIVE_OFF)
+    assert "LIVE MARKET DATA: NOT AVAILABLE" in script.seen_systems[0]
+    answer = [d["text"] for e, d in events if e == "answer"][0]
+    assert "Open Data Import and click Run Watcher" in answer and "can't answer that from live data" in answer
+    assert events[-1][1]["kind"] == "live_off"
+    assert script.sandbox_live == []                          # no query was run
+
+
+@async_test
+async def test_query_on_live_table_is_not_run_when_lmv_is_off(script):
+    # The model ignored the status and reached for lmv_live anyway (also covers old clients: live=None).
+    script.planner = [plan("sql", "SELECT symbol FROM lmv_live LIMIT 5")]
+    events = await collect("what is moving right now?", live=LIVE_OFF)
+    assert events[-1][1]["kind"] == "live_off" and script.sandbox_live == []
+    assert "Run Watcher" in [d["text"] for e, d in events if e == "answer"][0]
+
+
+@async_test
+async def test_older_app_without_a_live_block_keeps_the_archive_behaviour(script):
+    script.planner = [plan("sql", "SELECT symbol, close FROM eod_daily LIMIT 1")]
+    script.queries = [QueryResult(["symbol", "close"], [["RELIANCE", 2900.0]], False)]
+    events = await collect("what is Reliance trading at now?", live=None)
+    system = script.seen_systems[0]
+    assert "ARCHIVE ONLY" in system and "LIVE MARKET DATA: NOT AVAILABLE" not in system
+    assert events[-1][1]["kind"] == "sql"                     # answered from the archive, as before
+
+    # If the model declines (or reaches for the empty live table), it is steered back to the archive.
+    for first in (plan("live_off"), plan("sql", "SELECT symbol FROM lmv_live LIMIT 5")):
+        script.planner_calls = 0
+        script.planner = [first, plan("sql", "SELECT symbol, close FROM eod_daily LIMIT 1")]
+        script.queries = [QueryResult(["symbol", "close"], [["RELIANCE", 2900.0]], False)]
+        events = await collect("what is moving right now?", live=None)
+        assert events[-1][1]["kind"] == "sql" and script.planner_calls == 2
+        assert "archived data instead" in script.seen_messages[-1][-1]["content"][0]["text"]
+
+    # Only if it insists does the user get told to update the app.
+    script.planner_calls = 0
+    script.planner = [plan("live_off"), plan("live_off")]
+    events = await collect("what is moving right now?", live=None)
+    assert events[-1][1]["kind"] == "live_off"
+    assert "Update Fuku Lens" in [d["text"] for e, d in events if e == "answer"][0]
+
+
+@async_test
+async def test_archive_question_is_unaffected_by_a_running_lmv(script):
+    script.planner = [plan("sql", "SELECT symbol, close FROM eod_daily LIMIT 1")]
+    script.queries = [QueryResult(["symbol", "close"], [["RELIANCE", 2900.0]], False)]
+    events = await collect("yesterday's close for Reliance", live=LIVE)
+    assert events[-1][1]["kind"] == "sql"
+    assert "This result is LIVE" not in script.answer_messages[0][-1]["content"][1]["text"]
 
 
 @async_test

@@ -42,8 +42,8 @@ def test_every_sql_example_passes_the_sql_guard(kb):
 
 
 def test_data_source_docs_match_the_views_the_runner_creates(kb):
-    from app.services.chat.sql_runner import _view_ddl
-    views = set()
+    from app.services.chat.sql_runner import _LIVE_DDL, _view_ddl
+    views = {re.search(r"CREATE TEMP TABLE (\w+)", _LIVE_DDL).group(1)}   # lmv_live: a per-request table
     for ddl in _view_ddl("tenant_x", uuid.uuid4()):
         views.add(re.search(r"CREATE TEMP VIEW (\w+)", ddl).group(1))
     documented = {d.title for d in kb.docs.values() if d.category == "data-source"}
