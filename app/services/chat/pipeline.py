@@ -14,6 +14,7 @@ Events, so the desktop UI can animate each stage as it happens:
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -101,6 +102,16 @@ _ARCHIVE_INSTEAD = (
 )
 
 
+# Strategy alerts live in strategy_signals and never need the Live Master View, however "live"
+# the question sounds ("which live alerts are open right now?").
+_ALERT_QUESTION = re.compile(r"\b(alerts?|signals?|triggered|fired)\b", re.IGNORECASE)
+_ALERTS_INSTEAD = (
+    "This question is about the user's strategy alerts. They are stored in strategy_signals and do "
+    "not need the Live Master View. Answer it from strategy_signals as kind sql, without lmv_live "
+    "(current prices are not available; entry details and status are). Return a corrected JSON reply."
+)
+
+
 def _uses_live(sql: str) -> bool:
     return "lmv_live" in sql.lower()
 
@@ -177,12 +188,17 @@ async def run_chat(
                 wants_live = plan["kind"] == "live_off" or (
                     plan["kind"] == "sql" and _uses_live(plan.get("sql") or "")
                 )
-                if live is None and wants_live and attempt < settings.chat_sql_max_retries:
-                    # An older desktop build (no live block): keep its pre-live behaviour and
-                    # answer from the archive instead of telling the user about a feature it lacks.
+                about_alerts = bool(_ALERT_QUESTION.search(question))
+                if (
+                    wants_live and not live_usable and (live is None or about_alerts)
+                    and attempt < settings.chat_sql_max_retries
+                ):
+                    # Two cases where "LMV is not running" is the wrong answer: an older desktop
+                    # build (no live block; keep its pre-live archive behaviour), and a question
+                    # about strategy alerts (answerable from strategy_signals without LMV).
                     messages = messages + [
                         {"role": "assistant", "content": [{"text": reply.text or "{}"}]},
-                        {"role": "user", "content": [{"text": _ARCHIVE_INSTEAD}]},
+                        {"role": "user", "content": [{"text": _ALERTS_INSTEAD if about_alerts else _ARCHIVE_INSTEAD}]},
                     ]
                     plan = None
                     continue
@@ -256,6 +272,14 @@ async def run_chat(
                 f"This result is LIVE: it comes from the user's running Live Master View as of {live.as_of or 'just now'}. "
                 + (f"Feed warning to pass on: {live.warning} " if live.warning else "")
                 + "\n\n"
+            )
+        elif live is not None and not live.usable and _ALERT_QUESTION.search(question):
+            live_note = (
+                "Live prices are NOT available for this answer ("
+                + (live.reason or "the Live Master View is not running")
+                + "). If the user asked how the alerts are doing now, say in one line that current "
+                "prices need the Live Master View running; do not present running_high/running_low "
+                "as the current price.\n\n"
             )
         answer_prompt = (
             f"SQL that was run:\n{display_sql}\n\nRESULT (JSON):\n{_result_for_model(result)}\n\n{live_note}"

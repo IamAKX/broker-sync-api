@@ -158,6 +158,25 @@ async def test_older_app_without_a_live_block_keeps_the_archive_behaviour(script
 
 
 @async_test
+async def test_alert_questions_never_get_the_lmv_not_running_reply(script):
+    # "live alerts ... right now" with LMV off: alerts live in strategy_signals, not in the LMV grid.
+    for first in (plan("live_off"), plan("sql", "SELECT s.symbol FROM strategy_signals s JOIN lmv_live l ON l.symbol = s.symbol")):
+        script.planner_calls = 0
+        script.planner = [first, plan("sql", "SELECT strategy_name, symbol FROM strategy_signals WHERE status = 'open' LIMIT 50")]
+        script.queries = [QueryResult(["strategy_name", "symbol"], [["R6 Buy", "SBIN"]], False)]
+        events = await collect("which live alerts triggered by my strategies are open right now?", live=LIVE_OFF)
+        assert events[-1][1]["kind"] == "sql" and script.planner_calls == 2
+        assert "strategy_signals" in script.seen_messages[-1][-1]["content"][0]["text"]
+        note = script.answer_messages[-1][-1]["content"][1]["text"]
+        assert "Live prices are NOT available" in note and "Run Watcher" in note
+
+    # A live PRICE question with LMV off is still told what to switch on.
+    script.planner_calls, script.planner = 0, [plan("live_off")]
+    events = await collect("what is the live price of SBIN?", live=LIVE_OFF)
+    assert events[-1][1]["kind"] == "live_off" and script.planner_calls == 1
+
+
+@async_test
 async def test_archive_question_is_unaffected_by_a_running_lmv(script):
     script.planner = [plan("sql", "SELECT symbol, close FROM eod_daily LIMIT 1")]
     script.queries = [QueryResult(["symbol", "close"], [["RELIANCE", 2900.0]], False)]
