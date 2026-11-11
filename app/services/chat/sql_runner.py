@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import cache
 from app.core.config import settings
+from app.services.chat.default_sectors import DEFAULT_SECTOR_STOCKS
 
 _SCHEMA_RE = re.compile(r"^[a-z0-9_]+$")
 _CONTEXT_TTL_SECONDS = 300
@@ -64,6 +65,8 @@ class DataContext:
     eod_earliest: date | None = None
     lmv_earliest: date | None = None
     futures_earliest: date | None = None
+    # "SECTOR (n stocks)" for every sector in stock_sectors, so the model uses real sector names.
+    sectors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,10 +96,33 @@ _LIVE_INSERT = """INSERT INTO lmv_live (symbol, display_name, sector, metrics)
     FROM jsonb_array_elements(CAST(:payload AS jsonb)) AS e"""
 
 
+def _sector_select(schema: str, user_id: uuid.UUID) -> str:
+    """SELECT symbol, sector: the user's own Config Editor > Sector Stock list (UserSetting
+    key 'sector_stock', a JSON array of [sector, stock] pairs), or the built-in default list
+    for a user who never saved one. Without this the model has no sector data and invents
+    sector membership from memory (it once put AMBUJACEM, a cement stock, in Automobile)."""
+    s = f'"{schema}"'
+    uid = str(user_id)
+    saved = f"""SELECT us.value FROM {s}."UserSetting" us
+                WHERE us.user_id = '{uid}' AND us.key = 'sector_stock' AND jsonb_typeof(us.value) = 'array'
+                  AND us.value <> '[]'::jsonb"""
+    defaults = ", ".join(
+        "('{}', '{}')".format(sym.replace("'", "''"), sec.replace("'", "''")) for sec, sym in DEFAULT_SECTOR_STOCKS
+    )
+    return f"""SELECT DISTINCT upper(btrim(e->>1)) AS symbol, upper(btrim(e->>0)) AS sector
+               FROM ({saved}) v,
+                    jsonb_array_elements(CASE WHEN jsonb_typeof(v.value) = 'array' THEN v.value ELSE '[]'::jsonb END) AS e
+               WHERE jsonb_typeof(e) = 'array' AND btrim(COALESCE(e->>1, '')) <> '' AND btrim(COALESCE(e->>0, '')) <> ''
+               UNION ALL
+               SELECT d.symbol, d.sector FROM (VALUES {defaults}) AS d(symbol, sector)
+               WHERE NOT EXISTS ({saved})"""
+
+
 def _view_ddl(schema: str, user_id: uuid.UUID) -> list[str]:
     s = f'"{schema}"'
     uid = str(user_id)
     return [
+        f"CREATE TEMP VIEW stock_sectors AS {_sector_select(schema, user_id)}",
         f"""CREATE TEMP VIEW stocks AS
             SELECT symbol, display_name AS name FROM {s}."Stock" WHERE is_active""",
         f"""CREATE TEMP VIEW eod_daily AS
@@ -219,11 +245,19 @@ async def load_data_context(session: AsyncSession, *, schema_name: str, user_id:
         ).scalar()
         fut = (await session.execute(text('SELECT max(trade_date) FROM public."EodBar"'))).scalar()
         fut_min = (await session.execute(text('SELECT min(trade_date) FROM public."EodBar"'))).scalar()
+        sector_rows = await session.execute(
+            text(
+                "SELECT sector, count(*) FROM ("
+                + _sector_select(schema_name, uuid.UUID(user_id))
+                + ") x GROUP BY sector ORDER BY sector"
+            )
+        )
+        sectors = tuple(f"{r[0]} ({r[1]})" for r in sector_rows)
     except DBAPIError as exc:
         raise SqlExecutionError(str(getattr(exc, "orig", exc)).splitlines()[0]) from exc
     finally:
         await session.rollback()
     ctx = DataContext(eod_latest=eod, lmv_latest=lmv, lmv_metric_keys=keys, signals_latest=sig, futures_latest=fut,
-                      eod_earliest=eod_min, lmv_earliest=lmv_min, futures_earliest=fut_min)
+                      eod_earliest=eod_min, lmv_earliest=lmv_min, futures_earliest=fut_min, sectors=sectors)
     cache.set(key, ctx, _CONTEXT_TTL_SECONDS)
     return ctx

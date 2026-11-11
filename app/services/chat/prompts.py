@@ -52,6 +52,11 @@ SQL rules:
   Never join lmv_live to the archives to "confirm" a live value.
 - For the archives, "latest"/"last close"/"yesterday" means the latest date present in the data
   (max(trade_date)), not the calendar date. Always keep date filters explicit.
+- SECTOR questions: sector membership comes ONLY from stock_sectors (join it on symbol), or
+  lmv_live.sector for a live question. NEVER write a list of symbols for a sector from your own
+  knowledge, and never match a sector by symbol/name pattern (LIKE '%BANK%'). Map the user's word
+  to the closest exact sector name listed under DATA FRESHNESS (Automobile -> AUTO, IT -> TECHNOLOGY,
+  banks -> BANKING); if nothing fits, reply clarify and list the available sectors.
 - Always include a sensible ORDER BY and LIMIT (at most 200 rows); prefer top-N for rankings.
 - Select the columns needed to answer plus the date they refer to. Name computed columns clearly.
 - Percentage columns hold plain percent numbers (diff_pct = -1.25 means -1.25%).
@@ -104,6 +109,8 @@ def build_planner_system(
         f"- strategy_signals latest event_time: {_fmt(ctx.signals_latest)}\n"
         f"- eod_futures_bars trade_date range: {_fmt(ctx.futures_earliest)} to {_fmt(ctx.futures_latest)}\n"
         f"LMV metric keys (case-sensitive, usable in lmv_daily.metrics): {keys}\n"
+        "Sectors in stock_sectors (exact names, with stock counts): "
+        + (", ".join(ctx.sectors) if ctx.sectors else "(none)") + "\n"
     )
     kb = get_knowledge_base()
     knowledge = kb.render(kb.select(question))

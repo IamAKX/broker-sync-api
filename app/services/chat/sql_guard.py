@@ -24,6 +24,7 @@ ALLOWED_RELATIONS: frozenset[str] = frozenset(
         "eod_daily",
         "lmv_daily",
         "lmv_live",
+        "stock_sectors",
         "strategy_signals",
         "my_strategies",
         "eod_futures_bars",

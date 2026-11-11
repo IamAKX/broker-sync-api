@@ -47,7 +47,7 @@ def script(monkeypatch):
         yield StreamEvent(final=ModelReply(text="".join(s.answer), input_tokens=5, output_tokens=7))
 
     async def fake_ctx(session, **kw):
-        return DataContext(None, None, ["Close"], None, None)
+        return DataContext(None, None, ["Close"], None, None, sectors=("AUTO (16)", "BANKING (18)", "CEMENT (5)"))
 
     @asynccontextmanager
     async def fake_sandbox(session, **kw):
@@ -167,6 +167,18 @@ async def test_archive_question_is_unaffected_by_a_running_lmv(script):
 
 
 @async_test
+async def test_planner_is_given_the_real_sector_names_and_told_not_to_guess(script):
+    script.planner = [plan("sql", "SELECT e.symbol FROM eod_daily e JOIN stock_sectors s ON s.symbol = e.symbol "
+                                  "WHERE s.sector = 'BANKING' LIMIT 5")]
+    script.queries = [QueryResult(["symbol"], [["SBIN"]], False)]
+    events = await collect("which banking stocks did well?")
+    assert events[-1][1]["kind"] == "sql"                     # stock_sectors passes the SQL guard
+    system = script.seen_systems[0]
+    assert "Sectors in stock_sectors (exact names, with stock counts): AUTO (16), BANKING (18), CEMENT (5)" in system
+    assert "NEVER write a list of symbols for a sector" in system
+
+
+@async_test
 async def test_refuse_returns_answer_without_touching_db(script):
     script.planner = [plan("refuse", reply="I only help with markets.")]
     events = await collect("write a poem")
@@ -250,3 +262,18 @@ def test_audit_logs_are_separate_files(tmp_path, monkeypatch):
     assert "top gainers?" in (tmp_path / "chat_prompts.log").read_text()
     assert "SELECT 1" not in (tmp_path / "chat_prompts.log").read_text()
     assert "SELECT 1" in (tmp_path / "chat_queries.log").read_text()
+
+
+def test_sector_view_uses_saved_list_else_defaults():
+    import uuid
+
+    from app.services.chat.default_sectors import DEFAULT_SECTOR_STOCKS
+    from app.services.chat.sql_runner import _sector_select, _view_ddl
+
+    sql = _sector_select("tenant_x", uuid.UUID(USER.user_id))
+    assert '"tenant_x"."UserSetting"' in sql and "us.key = 'sector_stock'" in sql
+    assert f"us.user_id = '{USER.user_id}'" in sql            # only the caller's own list
+    assert "('AMBUJACEM', 'CEMENT')" in sql and "WHERE NOT EXISTS" in sql   # defaults only as a fallback
+    assert any(d.startswith("CREATE TEMP VIEW stock_sectors AS") for d in _view_ddl("tenant_x", uuid.UUID(USER.user_id)))
+    assert dict((sym, sec) for sec, sym in DEFAULT_SECTOR_STOCKS)["AMBUJACEM"] == "CEMENT"
+    assert len({sym for _sec, sym in DEFAULT_SECTOR_STOCKS}) == len(DEFAULT_SECTOR_STOCKS)   # one sector per stock

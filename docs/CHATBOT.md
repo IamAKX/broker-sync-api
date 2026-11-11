@@ -9,7 +9,8 @@ is an Anthropic API key (`ANTHROPIC_API_KEY`); the HTTP contract is in
 
 | Can | Cannot (answers "not available", never invents) |
 |---|---|
-| EOD OHLC/volume/% change for tracked stocks (`eod_daily`) | Index (Nifty/Bank Nifty) or sector-level reports |
+| EOD OHLC/volume/% change for tracked stocks (`eod_daily`) | Index (Nifty/Bank Nifty) reports, the desktop's sector reports |
+| Sector questions: a sector's stocks, sector ranking (`stock_sectors`, the user's own Sector Stock list) | A sector for a stock that isn't in that list (it says so, never guesses) |
 | The LMV daily archive, any LMV column (`lmv_daily`) | EMV/HMV trend classifications, Days True |
 | The user's strategy alerts & win rates (`strategy_signals`) | Backtest results, Market Profile, option chain |
 | Futures EOD incl. open interest (`eod_futures_bars`) | Tick-by-tick history, news |
@@ -86,6 +87,7 @@ test.
 | View | Source | Scope |
 |---|---|---|
 | `stocks` | tenant `Stock` | tenant |
+| `stock_sectors` | the user's `UserSetting` key `sector_stock` (Config Editor > Sector Stock); built-in `default_sectors.py` list if never saved | **user** |
 | `eod_daily` | tenant `HistoricalStockValue` pivoted (Open/High/Low/Close/AvgRate/Quantity/DiffPcnt) | tenant |
 | `lmv_daily` | tenant `LmvDailySnapshotWide` (`metrics` JSONB) | tenant |
 | `lmv_live` | TEMP table filled from the request's `live` block (the caller's own LMV grid) | **this request only** |
