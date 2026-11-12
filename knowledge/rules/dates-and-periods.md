@@ -15,6 +15,10 @@ order: 20
   8 Nov 2026), which are real trading days with their own rows.
 - A date with no row (weekend / holiday): use the latest bar on or before it and say which date
   the figures are for.
+- A short code is a fixed app definition, never something to re-derive: Inception Group A codes
+  come from `inception_levels` columns, LMV codes from the `metrics` keys. If a code is in neither
+  for the date asked and no example shows how to get it, say it is unavailable (kind
+  "unavailable") instead of inventing a formula for it.
 - Live / "right now" / "current" / "today so far" questions: answer from `lmv_live` when LIVE
   MARKET DATA says RUNNING. When it says NOT AVAILABLE, reply with kind `live_off` (the archives
   hold end-of-day data only and are not a substitute for a live question). When it says ARCHIVE

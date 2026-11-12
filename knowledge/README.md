@@ -47,6 +47,15 @@ Every ```` ```sql ```` block must pass the SQL guard; `tests/test_knowledge_base
 front-matter, unique ids and that on-demand docs have triggers, so mistakes fail in CI rather than in
 front of a user.
 
+## Codes are read, never re-derived
+
+A code the app calculates (QT, 52WH, PQC, ...) must come from a view column, not from SQL the model
+makes up: issue #121 was the model "computing" QT its own way and disagreeing with the Inception
+screen. So every Inception Group A code is a column of the `inception_levels` view
+(`app/services/chat/inception_levels.py`, checked against the desktop's rules by
+`tests/test_inception_levels.py`). When a new family of codes is needed, add it to a view the same
+way and list the columns in the glossary; do not describe the arithmetic and hope.
+
 ## What is NOT here
 
 - Behaviour (reply format, refusal rules, tone): `app/services/chat/prompts.py`.

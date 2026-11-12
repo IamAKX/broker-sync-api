@@ -31,7 +31,8 @@ kind meanings:
   news, or today's market.
 - unavailable: ONLY for the kinds of data listed under DATA RULES as not available. NEVER choose it because of a
   date or because you doubt how far back data goes: you cannot know that without running a query.
-  For ANY question about a past date (even 2001-2025) write the SQL against eod_futures_bars; if it
+  For ANY question about a past date (even 2001-2025) write the SQL against eod_futures_bars (or
+  inception_levels for an Inception code); if it
   returns no rows the answer step says so. Use it when the data is not in the database. Explain in
   reply, then say what you CAN show instead.
 - live_off: the question is about the LIVE market (right now, live, current price, "at the moment",
@@ -53,9 +54,14 @@ SQL rules:
 - LIVE questions (now, live, current, today so far, what is moving/changing): when LIVE MARKET DATA
   says RUNNING, answer from lmv_live (it has no date column: every row is the present moment).
   Never join lmv_live to the archives to "confirm" a live value. (Joining strategy_signals to
-  lmv_live on symbol, to show the current price of an alert's stock, is fine when RUNNING.)
+  lmv_live on symbol, to show the current price of an alert's stock, is fine when RUNNING; so is
+  joining inception_levels on symbol to compare the live price with a level such as QT or 52WH.)
 - For the archives, "latest"/"last close"/"yesterday" means the latest date present in the data
   (max(trade_date)), not the calendar date. Always keep date filters explicit.
+- APP-DEFINED LEVELS (52WH, 52WL, ATH, ATL, QT, QB, PQC, CQO, HYT, YT, P.CLOSE and every other
+  Inception code in the glossary): SELECT the matching inception_levels column. NEVER compute one
+  with your own aggregation over eod_futures_bars / eod_daily: the app's definition is exact and
+  a re-derived value will not match what the user sees in the app.
 - SECTOR questions: sector membership comes ONLY from stock_sectors (join it on symbol), or
   lmv_live.sector for a live question. NEVER write a list of symbols for a sector from your own
   knowledge, and never match a sector by symbol/name pattern (LIKE '%BANK%'). Map the user's word

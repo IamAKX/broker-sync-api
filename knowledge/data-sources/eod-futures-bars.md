@@ -18,8 +18,9 @@ Continuous-futures end-of-day history shared across all users. **Long history**:
   `underlying_symbol = 'RELIANCE' AND symbol = 'RELIANCE_I'`; for all stocks
   `symbol = underlying_symbol || '_I'`.
 - Use THIS view for any historical price / volume / open-interest question about a date before the
-  `lmv_daily` / `eod_daily` earliest dates, and for everything that must be computed from history
-  (52-week high, month top, ...). Say the figures are futures prices.
+  `lmv_daily` / `eod_daily` earliest dates. Say the figures are futures prices.
+- Do NOT calculate an Inception Group A code (52WH, ATH, QT, PQC, CQO, YT, ...) from these bars:
+  read its column from `inception_levels`, which already holds the app's exact value.
 - Never claim data "only goes back to" a date without checking `min(trade_date)` here.
 - Weekend / holiday dates have no row: use the latest bar on or before the date and say so.
 - Other columns exist on the underlying table (patp, day_to, max_pain, vah, poc, or_high, ...) but

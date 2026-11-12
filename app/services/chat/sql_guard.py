@@ -28,6 +28,7 @@ ALLOWED_RELATIONS: frozenset[str] = frozenset(
         "strategy_signals",
         "my_strategies",
         "eod_futures_bars",
+        "inception_levels",
         "market_holidays",
     }
 )

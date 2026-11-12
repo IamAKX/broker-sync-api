@@ -6,6 +6,9 @@ Isolation model (defence in depth, on top of sql_guard):
     schema — taken from the verified JWT, never from the client — and, for
     per-user data (signals, strategies), carry a hard-coded `user_id = <uuid>`
     filter. Nothing else is reachable by name.
+  * `inception_levels` is a TEMP view over the shared futures bars that carries every Inception
+    Group A code as a ready-made column (see inception_levels.py), so app-defined levels are
+    read, never re-derived by the model.
   * `lmv_live` is a TEMP table filled, per request, with the Live Master View rows the
     caller's own desktop sent along with the question (empty when LMV isn't running).
     It lives only inside this transaction (ON COMMIT DROP + rollback).
@@ -33,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cache import cache
 from app.core.config import settings
 from app.services.chat.default_sectors import DEFAULT_SECTOR_STOCKS
+from app.services.chat.inception_levels import view_ddl as _inception_levels_ddl
 
 _SCHEMA_RE = re.compile(r"^[a-z0-9_]+$")
 _CONTEXT_TTL_SECONDS = 300
@@ -153,6 +157,9 @@ def _view_ddl(schema: str, user_id: uuid.UUID) -> list[str]:
             SELECT i.symbol, i.underlying_symbol, i.instrument_type, e.trade_date,
                    e.open, e.high, e.low, e.close, e.volume, e.open_interest, e.avg_rate
             FROM public."EodBar" e JOIN public."Instrument" i ON i.id = e.instrument_id""",
+        # Every Inception Group A code (QT, PQC, 52WH, ATH, ...) computed exactly as the desktop
+        # does, so the model reads a column instead of inventing the arithmetic (issue #121).
+        _inception_levels_ddl(schema),
         f"""CREATE TEMP VIEW market_holidays AS
             SELECT holiday_date, name FROM {s}."Holiday\"""",
     ]

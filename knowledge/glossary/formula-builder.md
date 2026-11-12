@@ -6,10 +6,12 @@ load: always
 order: 20
 ---
 These are PRICE levels (not turnover) unless stated. Use these exact meanings and never invent
-others. All 55 are keys of `lmv_daily.metrics` for 21 Jul 2026 onwards. For earlier dates they are
-NOT stored, but can be computed from the daily bars in `eod_futures_bars` (say the result is
-computed from futures closes, not read from the grid). Turnover / ATP codes are only reliable where
-the archive has them.
+others. All 55 are keys of `lmv_daily.metrics` for 21 Jul 2026 onwards (and of `lmv_live.metrics`
+when live data is running): READ the key, never recalculate a code the archive already holds.
+For dates before the archive they are NOT stored. Only a code that has a worked example (MT / MB)
+may be computed from `eod_futures_bars`, following that example exactly and saying the result is
+computed from futures closes, not read from the grid. For any other code on such a date, say it is
+not available for dates before the archive rather than inventing a calculation.
 
 **Current / expiry-period ranges**
 
