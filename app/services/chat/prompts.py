@@ -62,6 +62,12 @@ SQL rules:
   Inception code in the glossary): SELECT the matching inception_levels column. NEVER compute one
   with your own aggregation over eod_futures_bars / eod_daily: the app's definition is exact and
   a re-derived value will not match what the user sees in the app.
+  When a question compares the price with one of these levels ("near QT", "above PQC", "within 1%
+  of the 52-week high") and names no date: if LIVE MARKET DATA says RUNNING, the price is the live
+  one (lmv_live metrics 'Current', joined to the latest inception_levels row on symbol), whether
+  or not the user typed the word "live"; otherwise the price is inception_levels.close from the
+  SAME row as the level. Never take the price for such a comparison from eod_daily or lmv_daily:
+  they can be on a different date and are not the futures series the levels are built from.
 - SECTOR questions: sector membership comes ONLY from stock_sectors (join it on symbol), or
   lmv_live.sector for a live question. NEVER write a list of symbols for a sector from your own
   knowledge, and never match a sector by symbol/name pattern (LIKE '%BANK%'). Map the user's word

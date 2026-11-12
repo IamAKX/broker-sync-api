@@ -150,6 +150,9 @@ def test_planner_prompt_routes_inception_codes_to_the_view():
     assert "SELECT the matching inception_levels column" in prompt
     assert "FROM lmv_live l JOIN inception_levels v USING (symbol)" in prompt     # the live worked example
     assert "| QT | `qt` |" in prompt
+    # The price side of a level comparison: live grid when running, else the view's own close.
+    # (Seen on the deployed bot: it joined eod_daily's latest close, on another date, to the level.)
+    assert "Never take the price for such a comparison from eod_daily or lmv_daily" in prompt
 
 
 def test_guard_accepts_the_view_and_the_live_join():

@@ -28,6 +28,13 @@ per (stock, trading day) with every code already calculated exactly as the app's
 - Select only the code columns the question needs.
 - A value is NULL when the app shows a blank (for example PQC for a stock that did not trade in
   the previous quarter).
-- Live questions about these levels ("which stocks are near QT right now?"): the levels come from
-  the latest row here, the live price from `lmv_live` (`metrics->>'Current'`). Join the two on
-  `symbol`. This is the one case where `lmv_live` is joined to another view.
+- Comparing the price with a level ("near QT", "above PQC") when no date is given:
+  - LIVE MARKET DATA says RUNNING: the level comes from the latest row here and the price is the
+    live one, `lmv_live` `metrics->>'Current'`, joined on `symbol` (even if the user did not type
+    "live": they are looking at the live market). This is the one case where `lmv_live` is joined
+    to another view.
+  - otherwise (or for a past date): use this view's own `close` from the same row as the level.
+  - Never take the price from `eod_daily` or `lmv_daily` for such a comparison: their latest date
+    can differ from this view's and they are not the futures series the levels are built from.
+- Column aliases must be valid identifiers: never start one with a digit (`wh52` or
+  `week52_high`, not `52_week_high`).

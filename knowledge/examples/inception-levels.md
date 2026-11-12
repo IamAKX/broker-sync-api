@@ -5,8 +5,9 @@ category: examples
 load: always
 order: 8
 ---
-Q: Any stocks within 1 percent of QT? (LIVE MARKET DATA says RUNNING: live price from `lmv_live`,
-QT from the latest `inception_levels` row. Never calculate QT.)
+Q: Any stocks within 1 percent of QT? (No date given and LIVE MARKET DATA says RUNNING, so the
+price is the live one from `lmv_live` even though the user did not say "live"; QT comes from the
+latest `inception_levels` row. Never calculate QT, never use `eod_daily` for the price.)
 
 ```sql
 SELECT l.symbol, l.sector,
@@ -21,7 +22,7 @@ ORDER BY abs(NULLIF(l.metrics->>'Current', '')::numeric - v.qt) / v.qt LIMIT 50
 ```
 
 Q: The same question when live data is NOT running or the user asks about the last close / a date
-(here: as of 9 Nov 2026):
+(here: as of 9 Nov 2026). Price and level both come from the same `inception_levels` row:
 
 ```sql
 SELECT symbol, trade_date, close, qt, round(100.0 * (close - qt) / qt, 2) AS pct_from_qt
