@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     chat_answer_model_id: str = ""
     chat_sql_max_tokens: int = 1200
     chat_answer_max_tokens: int = 1200
+    # POST /chat/translate: longest answer it accepts, and the reply budget (Tamil
+    # takes several times the tokens of the same answer in English).
+    chat_translate_max_chars: int = 8000
+    chat_translate_max_tokens: int = 6000
     # API client timeout (seconds) and automatic retries.
     chat_llm_timeout: int = 60
     chat_llm_max_retries: int = 2

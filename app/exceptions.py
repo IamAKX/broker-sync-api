@@ -60,6 +60,11 @@ class ChatRateLimitedError(AppError):
     code = "chat_rate_limited"
 
 
+class ChatTranslateError(AppError):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "chat_translate_failed"
+
+
 class HolidayNotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "holiday_not_found"

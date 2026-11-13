@@ -741,6 +741,33 @@ Typical refusal: `stage(understanding)`, `answer`, `done {"kind": "refuse"}`.
 { "detail": "You can ask up to 12 questions per minute. Please wait a few seconds.", "code": "chat_rate_limited" }
 ```
 
+### `POST /chat/translate`
+
+Translates one finished chat answer for display (the "Translate to Tamil" option on an answer).
+One model call, no database access; counts against the same per-user rate limit as a question.
+Stock/company names, symbols, Fuku Lens codes, numbers and the Markdown structure come back
+unchanged. English is never requested: the client keeps the original and switches back locally.
+
+**Request**
+```json
+{ "text": "**RELIANCE** closed at 1,250.5.", "target": "ta" }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `text` | string | The answer Markdown, 1–20000 chars; longer than `CHAT_TRANSLATE_MAX_CHARS` (8000) is refused with 502 |
+| `target` | string | `"ta"` (Tamil), the only language so far |
+
+**Response `200 OK`**
+```json
+{ "text": "**RELIANCE** 1,250.5 இல் முடிந்தது.", "target": "ta" }
+```
+
+**Failures** — `503 chat_disabled`, `429 chat_rate_limited` (as for `/chat/ask`), and
+`502 chat_translate_failed` when the model call fails or the answer is too long; `detail` is
+safe to show to the user.
+
+
 ---
 
 ## Error Codes
@@ -762,7 +789,8 @@ shape instead — shown inline above wherever an endpoint can trigger one.
 | 404 | `holiday_not_found` | `/holidays/{id}` (PATCH, DELETE) | No holiday with that id for this tenant |
 | 409 | `duplicate_holiday_date` | `/holidays` (POST), `/holidays/{id}` (PATCH) | Another holiday already exists on the given date |
 | 503 | `chat_disabled` | `/chat/ask` | `CHAT_ENABLED` is false for this deployment |
-| 429 | `chat_rate_limited` | `/chat/ask` | The user exceeded `CHAT_RATE_LIMIT_PER_MINUTE` |
+| 429 | `chat_rate_limited` | `/chat/ask`, `/chat/translate` | The user exceeded `CHAT_RATE_LIMIT_PER_MINUTE` |
+| 502 | `chat_translate_failed` | `/chat/translate` | The model call failed, or the answer is too long to translate |
 | 500 | `schema_provisioning_failed` | `/auth/signup` | Tenant schema/table creation failed during signup — the whole signup transaction rolls back, no partial tenant is left behind |
 
 **Example domain error response** (`401` from a missing bearer token on any `/historic/*` or `/data/*` call):

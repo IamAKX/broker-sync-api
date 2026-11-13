@@ -116,3 +116,63 @@ def test_ask_validates_body(client, monkeypatch):
     monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
     assert client.post("/chat/ask", json={"question": ""}).status_code == 422
     assert client.post("/chat/ask", json={"question": "x", "history": [{"role": "system", "text": "t"}]}).status_code == 422
+
+
+# ── /chat/translate ──────────────────────────────────────────────────────
+
+def _fake_converse(seen, text="**RELIANCE** 1,250.5 இல் முடிந்தது.", **reply):
+    from app.services.chat.llm_client import ModelReply
+
+    async def converse(**kwargs):
+        seen.update(kwargs)
+        return ModelReply(text=text, **reply)
+    return converse
+
+
+def test_translate_returns_the_model_translation(client, monkeypatch):
+    from app.services.chat import translate as translate_service
+
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    seen = {}
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse(seen))
+    r = client.post("/chat/translate", json={"text": "**RELIANCE** closed at 1,250.5.", "target": "ta"})
+    assert r.status_code == 200
+    assert r.json() == {"text": "**RELIANCE** 1,250.5 இல் முடிந்தது.", "target": "ta"}
+    assert "Tamil" in seen["system"] and "ticker symbols" in seen["system"]
+    # the answer travels as data, not as an instruction
+    assert seen["messages"][0]["content"][0]["text"] == "<text>\n**RELIANCE** closed at 1,250.5.\n</text>"
+
+
+def test_translate_strips_echoed_tags(client, monkeypatch):
+    from app.services.chat import translate as translate_service
+
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}, text="<text>\nவணக்கம்\n</text>"))
+    assert client.post("/chat/translate", json={"text": "Hello"}).json()["text"] == "வணக்கம்"
+
+
+def test_translate_is_503_when_disabled_and_rejects_other_languages(client, monkeypatch):
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", False)
+    r = client.post("/chat/translate", json={"text": "hi", "target": "ta"})
+    assert r.status_code == 503 and r.json()["code"] == "chat_disabled"
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    assert client.post("/chat/translate", json={"text": "hi", "target": "fr"}).status_code == 422
+
+
+def test_translate_failures_are_a_clean_502(client, monkeypatch):
+    from app.services.chat import translate as translate_service
+    from app.services.chat.llm_client import LlmError
+
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+
+    async def down(**kwargs):
+        raise LlmError("The AI service is busy right now. Please try again in a moment.")
+    monkeypatch.setattr(translate_service.llm_client, "converse", down)
+    r = client.post("/chat/translate", json={"text": "hi"})
+    assert r.status_code == 502 and r.json()["code"] == "chat_translate_failed"
+    assert "busy" in r.json()["detail"]
+
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}, stop_reason="max_tokens"))
+    assert client.post("/chat/translate", json={"text": "hi"}).status_code == 502
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}, text="", blocked=True))
+    assert client.post("/chat/translate", json={"text": "hi"}).status_code == 502

@@ -7,12 +7,13 @@ from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.db.tenant_session import build_tenant_sessionmaker
-from app.exceptions import ChatDisabledError
-from app.schemas.chat import ChatAskRequest, ChatStatusOut
+from app.exceptions import ChatDisabledError, ChatTranslateError
+from app.schemas.chat import ChatAskRequest, ChatStatusOut, ChatTranslateOut, ChatTranslateRequest
 from app.services.chat.pipeline import run_chat
 from app.services.chat.rate_limit import check_rate_limit
 from app.services.chat.sql_runner import LiveSnapshot
 from app.services.chat.suggestions import SUGGESTED_QUESTIONS
+from app.services.chat.translate import TranslateError, translate
 from app.services.provisioning_service import ensure_tenant_schema_tables
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -68,3 +69,19 @@ async def chat_ask_route(
         # otherwise it would buffer the stream and the UI would see no live updates.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Content-Encoding": "identity"},
     )
+
+
+@router.post("/translate", response_model=ChatTranslateOut)
+async def chat_translate_route(
+    payload: ChatTranslateRequest, user: CurrentUser = Depends(get_current_user)
+) -> ChatTranslateOut:
+    """Translates one chat answer for display (see services/chat/translate.py). Touches
+    no database; counts against the same per-user rate limit as a question."""
+    if not settings.chat_enabled:
+        raise ChatDisabledError("The AI assistant is not enabled for this deployment.")
+    check_rate_limit(user.user_id)
+    try:
+        text = await translate(payload.text, payload.target)
+    except TranslateError as exc:
+        raise ChatTranslateError(str(exc)) from exc
+    return ChatTranslateOut(text=text, target=payload.target)

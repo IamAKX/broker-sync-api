@@ -55,3 +55,16 @@ class ChatStatusOut(BaseModel):
     enabled: bool
     model_id: str
     suggested_questions: list[str]
+
+
+class ChatTranslateRequest(BaseModel):
+    """One chat answer to show in another language. English is never requested:
+    the desktop keeps the original and switches back to it locally."""
+
+    text: str = Field(min_length=1, max_length=20000)
+    target: Literal["ta"] = "ta"
+
+
+class ChatTranslateOut(BaseModel):
+    text: str
+    target: str
