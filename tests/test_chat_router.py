@@ -138,9 +138,26 @@ def test_translate_returns_the_model_translation(client, monkeypatch):
     r = client.post("/chat/translate", json={"text": "**RELIANCE** closed at 1,250.5.", "target": "ta"})
     assert r.status_code == 200
     assert r.json() == {"text": "**RELIANCE** 1,250.5 இல் முடிந்தது.", "target": "ta"}
-    assert "Tamil" in seen["system"] and "ticker symbols" in seen["system"]
+    assert "Tamil script" in seen["system"] and "ticker symbols" in seen["system"]
     # the answer travels as data, not as an instruction
     assert seen["messages"][0]["content"][0]["text"] == "<text>\n**RELIANCE** closed at 1,250.5.\n</text>"
+
+
+def test_translate_tanglish_is_tamil_in_english_letters(client, monkeypatch):
+    from app.services.chat import translate as translate_service
+
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    seen = {}
+    monkeypatch.setattr(
+        translate_service.llm_client, "converse", _fake_converse(seen, text="**RELIANCE** 1,250.5 la close aachu.")
+    )
+    r = client.post("/chat/translate", json={"text": "**RELIANCE** closed at 1,250.5.", "target": "ta-Latn"})
+    assert r.json() == {"text": "**RELIANCE** 1,250.5 la close aachu.", "target": "ta-Latn"}
+    assert "English (Latin) letters" in seen["system"] and "Never use Tamil script" in seen["system"]
+    # a reply that comes back in Tamil script anyway is refused, not shown as "Tanglish"
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}))
+    r = client.post("/chat/translate", json={"text": "hi", "target": "ta-Latn"})
+    assert r.status_code == 502 and r.json()["code"] == "chat_translate_failed"
 
 
 def test_translate_strips_echoed_tags(client, monkeypatch):

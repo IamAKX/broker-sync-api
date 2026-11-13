@@ -62,7 +62,8 @@ class ChatTranslateRequest(BaseModel):
     the desktop keeps the original and switches back to it locally."""
 
     text: str = Field(min_length=1, max_length=20000)
-    target: Literal["ta"] = "ta"
+    # "ta" = Tamil script; "ta-Latn" = Tanglish (Tamil typed in English letters).
+    target: Literal["ta", "ta-Latn"] = "ta"
 
 
 class ChatTranslateOut(BaseModel):
