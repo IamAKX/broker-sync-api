@@ -143,21 +143,32 @@ def test_translate_returns_the_model_translation(client, monkeypatch):
     assert seen["messages"][0]["content"][0]["text"] == "<text>\n**RELIANCE** closed at 1,250.5.\n</text>"
 
 
-def test_translate_tanglish_is_tamil_in_english_letters(client, monkeypatch):
+def test_translate_tanglish_is_the_tamil_translation_in_english_letters(client, monkeypatch):
     from app.services.chat import translate as translate_service
 
     monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
     seen = {}
-    monkeypatch.setattr(
-        translate_service.llm_client, "converse", _fake_converse(seen, text="**RELIANCE** 1,250.5 la close aachu.")
-    )
-    r = client.post("/chat/translate", json={"text": "**RELIANCE** closed at 1,250.5.", "target": "ta-Latn"})
-    assert r.json() == {"text": "**RELIANCE** 1,250.5 la close aachu.", "target": "ta-Latn"}
-    assert "English (Latin) letters" in seen["system"] and "Never use Tamil script" in seen["system"]
-    # a reply that comes back in Tamil script anyway is refused, not shown as "Tanglish"
-    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}))
-    r = client.post("/chat/translate", json={"text": "hi", "target": "ta-Latn"})
-    assert r.status_code == 502 and r.json()["code"] == "chat_translate_failed"
+    monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse(
+        seen, text="**RELIANCE** தற்போது 1,250.50 ல் உள்ளது.\n\n| பங்கு | விலை |\n|---|---|\n| TCS | 3,500.5 |",
+    ))
+    r = client.post("/chat/translate", json={"text": "x", "target": "ta-Latn"})
+    assert r.json() == {
+        "text": "**RELIANCE** tharpodhu 1,250.50 l ulladhu.\n\n| pangu | vilai |\n|---|---|\n| TCS | 3,500.5 |",
+        "target": "ta-Latn",
+    }
+    assert "Tamil script" in seen["system"]          # same translation as "ta", then converted by rule
+
+
+def test_tanglish_spelling_rules():
+    from app.services.chat.tanglish import to_tanglish
+
+    assert to_tanglish("12-Nov-2026 அன்று மிகவும் விழுந்த பங்குகள்:") == "12-Nov-2026 andru migavum vizhundha pangugal:"
+    assert to_tanglish("வர்த்தகம் செய்யப்படுகிறது") == "vartthagam seyyappadugiradhu"
+    assert to_tanglish("வணக்கம் நன்றி தமிழ்") == "vanakkam nandri thamizh"
+    assert to_tanglish("காட்சி முயற்சி மஞ்சள் மற்ற சந்தை") == "kaatchi muyarchi manjal matra sandhai"
+    assert to_tanglish("BDL (-5.21%) ஐ விட இரண்டு மடங்கு அதிகம்") == "BDL (-5.21%) ai vida irandu madangu adhigam"
+    assert to_tanglish("no Tamil here: 52WH 1,608.80") == "no Tamil here: 52WH 1,608.80"
+    assert not any("\u0b80" <= ch <= "\u0bff" for ch in to_tanglish("ஃ௧ தமிழ்ௐ"))   # nothing Tamil is left behind
 
 
 def test_translate_strips_echoed_tags(client, monkeypatch):

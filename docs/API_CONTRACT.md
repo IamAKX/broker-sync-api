@@ -756,7 +756,7 @@ unchanged. English is never requested: the client keeps the original and switche
 | Field | Type | Notes |
 |---|---|---|
 | `text` | string | The answer Markdown, 1–20000 chars; longer than `CHAT_TRANSLATE_MAX_CHARS` (8000) is refused with 502 |
-| `target` | string | `"ta"` = Tamil in Tamil script (default); `"ta-Latn"` = Tanglish, Tamil typed in English letters (a reply that still contains Tamil script is refused with 502) |
+| `target` | string | `"ta"` = Tamil in Tamil script (default); `"ta-Latn"` = Tanglish, the same translation with the Tamil words typed in English letters (converted by rule on the server) |
 
 **Response `200 OK`**
 ```json
