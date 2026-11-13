@@ -43,6 +43,11 @@ Keep the Markdown structure identical: same headings, bullets, bold, line breaks
 (same rows and columns; translate ordinary words in table cells, never the names, codes or numbers)."""
 
 
+def _has_other_indic_script(text: str) -> bool:
+    """Devanagari, Bengali, Telugu, Kannada, Malayalam... - any Indian script but Tamil."""
+    return any(("\u0900" <= ch <= "\u0b7f") or ("\u0c00" <= ch <= "\u0dff") for ch in text)
+
+
 class TranslateError(RuntimeError):
     """A translation failure with a message that is safe to show end users."""
 
@@ -56,25 +61,32 @@ async def translate(text: str, target: str) -> str:
         raise TranslateError("There is nothing to translate.")
     if len(text) > settings.chat_translate_max_chars:
         raise TranslateError("This answer is too long to translate.")
-    try:
-        reply = await llm_client.converse(
-            model_id=settings.chat_answer_model_id or settings.chat_model_id,
-            system=_SYSTEM.format(language=language),
-            messages=[{"role": "user", "content": [{"text": f"<text>\n{text}\n</text>"}]}],
-            max_tokens=settings.chat_translate_max_tokens,
+    for attempt in (1, 2):
+        try:
+            reply = await llm_client.converse(
+                model_id=settings.chat_answer_model_id or settings.chat_model_id,
+                system=_SYSTEM.format(language=language),
+                messages=[{"role": "user", "content": [{"text": f"<text>\n{text}\n</text>"}]}],
+                max_tokens=settings.chat_translate_max_tokens,
+            )
+        except LlmError as exc:
+            raise TranslateError(str(exc)) from exc
+        logger.info(
+            "chat_translate", target=target, chars=len(text), attempt=attempt,
+            input_tokens=reply.input_tokens, output_tokens=reply.output_tokens, stop_reason=reply.stop_reason,
         )
-    except LlmError as exc:
-        raise TranslateError(str(exc)) from exc
-    logger.info(
-        "chat_translate", target=target, chars=len(text),
-        input_tokens=reply.input_tokens, output_tokens=reply.output_tokens, stop_reason=reply.stop_reason,
-    )
-    out = reply.text.strip()
-    if out.startswith("<text>"):
-        out = out[len("<text>"):]
-    if out.endswith("</text>"):
-        out = out[: -len("</text>")]
-    out = out.strip()
+        out = reply.text.strip()
+        if out.startswith("<text>"):
+            out = out[len("<text>"):]
+        if out.endswith("</text>"):
+            out = out[: -len("</text>")]
+        out = out.strip()
+        # Seen live: a Hindi word in the middle of a Tamil sentence. Ask once more.
+        if not _has_other_indic_script(out):
+            break
+        logger.warning("chat_translate_wrong_script", target=target, attempt=attempt)
+    else:
+        raise TranslateError("This answer could not be translated. Please try again.")
     if reply.blocked or not out:
         raise TranslateError("This answer could not be translated. Please try again.")
     if reply.stop_reason == "max_tokens":

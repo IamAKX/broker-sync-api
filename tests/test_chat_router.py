@@ -204,3 +204,22 @@ def test_translate_failures_are_a_clean_502(client, monkeypatch):
     assert client.post("/chat/translate", json={"text": "hi"}).status_code == 502
     monkeypatch.setattr(translate_service.llm_client, "converse", _fake_converse({}, text="", blocked=True))
     assert client.post("/chat/translate", json={"text": "hi"}).status_code == 502
+
+
+def test_translate_asks_again_when_another_script_slips_in(client, monkeypatch):
+    from app.services.chat import translate as translate_service
+    from app.services.chat.llm_client import ModelReply
+
+    monkeypatch.setattr(chat_router.settings, "chat_enabled", True)
+    replies = ["QT ஐ விட अधिक உள்ளது.", "QT ஐ விட அதிகம் உள்ளது."]
+    calls = []
+
+    async def converse(**kwargs):
+        calls.append(1)
+        return ModelReply(text=replies[min(len(calls), 2) - 1])
+    monkeypatch.setattr(translate_service.llm_client, "converse", converse)
+    assert client.post("/chat/translate", json={"text": "hi"}).json()["text"] == "QT ஐ விட அதிகம் உள்ளது."
+    assert len(calls) == 2
+
+    replies[1] = replies[0]                          # still wrong on the second try: a clean failure
+    assert client.post("/chat/translate", json={"text": "hi"}).status_code == 502
