@@ -71,14 +71,33 @@ def _clean_history(history: list[dict[str, str]]) -> list[dict]:
     return msgs
 
 
+_PLAN_KINDS = {"sql", "knowledge", "unavailable", "live_off", "refuse", "clarify"}
+_FENCE = re.compile(r"```(?:json)?", re.IGNORECASE)
+
+
 def _parse_plan(raw: str) -> dict[str, Any]:
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end <= start:
-        raise ValueError("no JSON object in model reply")
-    plan = json.loads(raw[start : end + 1])
-    if plan.get("kind") not in {"sql", "knowledge", "unavailable", "live_off", "refuse", "clarify"}:
-        raise ValueError("unknown plan kind")
-    return plan
+    """The first JSON object in *raw* that is a plan. Tolerates markdown fences, prose before or
+    after the object, a second object, and raw newlines inside strings (a multi-line "sql")."""
+    text = _FENCE.sub("", raw)
+    decoder = json.JSONDecoder(strict=False)
+    for m in re.finditer(r"\{", text):
+        try:
+            obj, _ = decoder.raw_decode(text, m.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj.get("kind") in _PLAN_KINDS:
+            return obj
+    raise ValueError("no plan JSON object in model reply")
+
+
+# Every correction the pipeline sends the planner goes in as a user turn. Without a marker the
+# model read "Reply with a single valid JSON object" as the *user* trying to change its rules and
+# refused the question (GH #122). PLANNER_RULES tells it these are from the app and never refusable.
+_APP_CHECK = "[Automatic check by the Fuku Lens app, not a message from the user]"
+
+
+def _app_check(note: str, question: str) -> str:
+    return f"{_APP_CHECK} {note}\nThe user's question is still: {question}"
 
 
 def _result_for_model(result: QueryResult) -> str:
@@ -181,9 +200,16 @@ async def run_chat(
                 return
             try:
                 plan = _parse_plan(reply.text)
-            except (ValueError, json.JSONDecodeError):
-                last_error = "Reply with a single valid JSON object as specified."
+            except ValueError:
+                # Re-ask the same question unchanged: a format slip is a one-off, and a "reply in
+                # JSON" turn is exactly what the model mistook for a rule change (GH #122).
+                last_error = "planner reply was not a JSON plan"
+                logger.warning(
+                    "chat_plan_unparseable", attempt=attempt, stop_reason=reply.stop_reason,
+                    output_tokens=reply.output_tokens, excerpt=reply.text[:600],
+                )
                 plan = None
+                continue
             else:
                 wants_live = plan["kind"] == "live_off" or (
                     plan["kind"] == "sql" and _uses_live(plan.get("sql") or "")
@@ -198,7 +224,9 @@ async def run_chat(
                     # about strategy alerts (answerable from strategy_signals without LMV).
                     messages = messages + [
                         {"role": "assistant", "content": [{"text": reply.text or "{}"}]},
-                        {"role": "user", "content": [{"text": _ALERTS_INSTEAD if about_alerts else _ARCHIVE_INSTEAD}]},
+                        {"role": "user", "content": [{"text": _app_check(
+                            _ALERTS_INSTEAD if about_alerts else _ARCHIVE_INSTEAD, question
+                        )}]},
                     ]
                     plan = None
                     continue
@@ -233,7 +261,7 @@ async def run_chat(
             logger.info("chat_repair_attempt", attempt=attempt, error=last_error)
             messages = messages + [
                 {"role": "assistant", "content": [{"text": reply.text or "{}"}]},
-                {"role": "user", "content": [{"text": f"{last_error} Return a corrected JSON reply."}]},
+                {"role": "user", "content": [{"text": _app_check(f"{last_error} Return a corrected JSON reply.", question)}]},
             ]
 
         if plan is None or (plan["kind"] == "sql" and result is None):

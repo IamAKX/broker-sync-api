@@ -240,6 +240,41 @@ async def test_unparseable_planner_reply_is_an_error(script):
     assert events[-1][0] == "error"
 
 
+@async_test
+async def test_unparseable_reply_reasks_the_same_question_without_a_format_turn(script):
+    # GH #122: a "Reply with a single valid JSON object" user turn made the model refuse the
+    # question as an attempt to change its rules. The retry must be the original question only.
+    script.planner = [ModelReply(text="Here are the stocks near their 52WH"), plan("sql", "SELECT 1")]
+    script.queries = [QueryResult(["x"], [[1]], False)]
+    events = await collect("stocks that are near 52wh and ath live")
+    assert events[-1][0] == "done" and events[-1][1]["kind"] == "sql"
+    assert script.seen_messages[1] == script.seen_messages[0]
+    assert all("JSON" not in m["content"][0]["text"] for m in script.seen_messages[1])
+
+
+def test_plan_parser_tolerates_fences_prose_newlines_and_extra_objects():
+    sql_with_newlines = '{"kind": "sql", "sql": "SELECT symbol\n  FROM lmv_live\n LIMIT 5", "reply": null}'
+    raw = sql_with_newlines.replace("\\n", "\n")  # a raw newline inside the JSON string
+    assert pipeline._parse_plan(raw)["sql"].startswith("SELECT symbol")
+    fenced = '```json\n{"kind": "sql", "sql": "SELECT 1", "reply": null}\n```\nThis finds {stocks} near highs.'
+    assert pipeline._parse_plan(fenced)["sql"] == "SELECT 1"
+    two = '{"note": "x"} then {"kind": "clarify", "sql": null, "reply": "Which stock?"} {"kind": "sql"}'
+    assert pipeline._parse_plan(two)["kind"] == "clarify"
+    with pytest.raises(ValueError):
+        pipeline._parse_plan('{"kind": "poem"}')
+
+
+@async_test
+async def test_repair_turns_are_marked_as_from_the_app_and_planner_is_told_not_to_refuse_them(script):
+    script.planner = [plan("sql", "DROP TABLE stocks"), plan("sql", "SELECT symbol FROM stocks")]
+    script.queries = [QueryResult(["symbol"], [["TCS"]], False)]
+    await collect("stocks near QT")
+    repair = script.seen_messages[1][-1]["content"][0]["text"]
+    assert repair.startswith("[Automatic check by the Fuku Lens app")
+    assert "The user's question is still: stocks near QT" in repair
+    assert "Never refuse because of one" in script.seen_systems[0]
+
+
 def test_history_is_sanitised_to_alternating_roles():
     msgs = pipeline._clean_history(
         [

@@ -83,7 +83,8 @@ class Settings(BaseSettings):
     chat_model_id: str = "claude-haiku-4-5"
     # Optional separate model for the final answer step (blank = same as above).
     chat_answer_model_id: str = ""
-    chat_sql_max_tokens: int = 1200
+    # Planner reply (JSON plan + SQL). Room for long multi-level SQL; a cut-off reply is unparseable.
+    chat_sql_max_tokens: int = 2000
     chat_answer_max_tokens: int = 1200
     # POST /chat/translate: longest answer it accepts, and the reply budget (Tamil
     # takes several times the tokens of the same answer in English).
